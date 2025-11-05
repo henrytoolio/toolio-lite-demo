@@ -30,8 +30,6 @@ if 'locations' not in st.session_state:
     st.session_state.locations = []
 if 'data_regenerated' not in st.session_state:
     st.session_state.data_regenerated = False
-if 'expanded_groups' not in st.session_state:
-    st.session_state.expanded_groups = set()
 
 def generate_sample_data(locations):
     """Generate sample merchandise plan data for 3 weeks with location and attribute hierarchy"""
@@ -116,79 +114,6 @@ def apply_filters(df, filters):
             filtered_df = filtered_df[filtered_df[attr].isin(value)]
     
     return filtered_df
-
-def get_group_key(group_values, row_attrs):
-    """Create a unique key for a group"""
-    if isinstance(group_values, tuple):
-        return str(group_values)
-    return str(group_values)
-
-def render_expandable_table(df, row_attrs, expanded_groups, metrics):
-    """Render a table with expand/collapse functionality for grouped rows"""
-    if not row_attrs or len(df) == 0:
-        return df
-    
-    # Check if 'Metric' or 'Metrics' is in row_attrs (metrics are always expanded)
-    has_metrics = 'Metric' in row_attrs or 'Metrics' in row_attrs
-    
-    # Get unique groups
-    grouped = df.groupby(row_attrs)
-    
-    # Create a list to store rows to display
-    display_rows = []
-    
-    for group_key, group_df in grouped:
-        # Create unique key for this group
-        group_id = get_group_key(group_key, row_attrs)
-        
-        # Check if this is a metric group (always expanded)
-        is_metric_group = has_metrics and ('Metric' in str(group_key) or 'Metrics' in str(group_key))
-        
-        # Determine if group should be expanded
-        if is_metric_group:
-            is_expanded = True  # Metrics always expanded
-        else:
-            is_expanded = group_id in expanded_groups
-        
-        # Add group header row (summary row)
-        header_row = {}
-        if isinstance(group_key, tuple):
-            for i, attr in enumerate(row_attrs):
-                header_row[attr] = group_key[i] if i < len(group_key) else ''
-        else:
-            header_row[row_attrs[0]] = group_key
-        
-        # Add expand/collapse indicator
-        if not is_metric_group:
-            header_row['_expand_indicator'] = '▶' if not is_expanded else '▼'
-        else:
-            header_row['_expand_indicator'] = ''
-        
-        # Add aggregated metric values for header
-        for metric in metrics:
-            if metric in group_df.columns:
-                header_row[metric] = group_df[metric].sum()
-            elif 'Value' in group_df.columns:
-                # For melted data
-                header_row['Value'] = group_df['Value'].sum()
-        
-        display_rows.append(pd.DataFrame([header_row]))
-        
-        # Add detail rows if expanded
-        if is_expanded:
-            detail_rows = group_df.copy()
-            # Add indentation for detail rows in the first grouped column
-            if len(row_attrs) > 0:
-                first_attr = row_attrs[0]
-                if first_attr in detail_rows.columns:
-                    detail_rows[first_attr] = '  ' + detail_rows[first_attr].astype(str)
-            detail_rows['_expand_indicator'] = ''
-            display_rows.append(detail_rows)
-    
-    if display_rows:
-        result_df = pd.concat(display_rows, ignore_index=True)
-        return result_df
-    return df
 
 def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
     """Create a pivot table with row and column grouping (like Toolio)"""
@@ -441,7 +366,7 @@ def main():
                 with st.spinner("Generating data..."):
                     st.session_state.locations = valid_locations
                     st.session_state.data = generate_sample_data(valid_locations)
-            st.session_state.filtered_data = st.session_state.data.copy()
+                    st.session_state.filtered_data = st.session_state.data.copy()
                     st.session_state.data_regenerated = True
                     st.success(f"✓ Data generated successfully for {len(valid_locations)} location(s)!")
                     st.rerun()
@@ -458,30 +383,30 @@ def main():
             st.warning("⚠️ Please configure locations in the Configuration tab and generate data first.")
             st.info("💡 Click on the '⚙️ Configuration' tab above to set up your locations.")
         else:
-    data = st.session_state.data
-    
-    # Sidebar for controls
-    with st.sidebar:
-        st.header("⚙️ Controls")
-        
+            data = st.session_state.data
+            
+            # Sidebar for controls
+            with st.sidebar:
+                st.header("⚙️ Controls")
+                
                 # Get available attributes from data
                 metrics = ['Gross Sales Units', 'Receipts Units', 'BOP Units', 'On Order Units']
                 available_attributes = [col for col in data.columns if col not in metrics]
                 
                 # All options for grouping (attributes + "Metrics" as single option)
                 all_grouping_options = available_attributes + ['Metrics']
-        
-        st.subheader("📋 Select Attributes to Display")
-        selected_attributes = st.multiselect(
-            "Choose attributes to show in the table:",
-            options=available_attributes,
-            default=st.session_state.selected_attributes,
-            help="Select which attribute columns to display in the data table"
-        )
-        st.session_state.selected_attributes = selected_attributes
-        
-        st.divider()
-        
+                
+                st.subheader("📋 Select Attributes to Display")
+                selected_attributes = st.multiselect(
+                    "Choose attributes to show in the table:",
+                    options=available_attributes,
+                    default=st.session_state.selected_attributes,
+                    help="Select which attribute columns to display in the data table"
+                )
+                st.session_state.selected_attributes = selected_attributes
+                
+                st.divider()
+                
                 # Group By - Rows and Columns (like Toolio)
                 st.subheader("🔀 Group By (Rows & Columns)")
                 st.markdown("**Group by Rows** (vertical grouping)")
@@ -502,38 +427,38 @@ def main():
                     help="Attributes or metrics to group by columns (horizontal grouping - creates pivot table)"
                 )
                 st.session_state.group_by_columns = group_by_columns
-        
-        st.divider()
-        
-        # Filters
-        st.subheader("🔍 Filters")
-        st.info("Apply filters to narrow down the data view")
-        
-        filters = {}
-        for attr in available_attributes:
-            if attr != 'Week':  # Week filter handled separately
-                unique_values = sorted(data[attr].unique().tolist())
-                selected_values = st.multiselect(
-                    f"Filter by {attr}:",
-                    options=unique_values,
-                    default=st.session_state.filters.get(attr, []),
-                    help=f"Filter data by {attr}"
+                
+                st.divider()
+                
+                # Filters
+                st.subheader("🔍 Filters")
+                st.info("Apply filters to narrow down the data view")
+                
+                filters = {}
+                for attr in available_attributes:
+                    if attr != 'Week':  # Week filter handled separately
+                        unique_values = sorted(data[attr].unique().tolist())
+                        selected_values = st.multiselect(
+                            f"Filter by {attr}:",
+                            options=unique_values,
+                            default=st.session_state.filters.get(attr, []),
+                            help=f"Filter data by {attr}"
+                        )
+                        if selected_values:
+                            filters[attr] = selected_values
+                
+                # Week filter (special handling)
+                unique_weeks = sorted(data['Week'].unique().tolist())
+                selected_weeks = st.multiselect(
+                    "Filter by Week:",
+                    options=unique_weeks,
+                    default=st.session_state.filters.get('Week', unique_weeks),
+                    help="Select which weeks to display"
                 )
-                if selected_values:
-                    filters[attr] = selected_values
-        
-        # Week filter (special handling)
-        unique_weeks = sorted(data['Week'].unique().tolist())
-        selected_weeks = st.multiselect(
-            "Filter by Week:",
-            options=unique_weeks,
-            default=st.session_state.filters.get('Week', unique_weeks),
-            help="Select which weeks to display"
-        )
-        if selected_weeks:
-            filters['Week'] = selected_weeks
-        
-        st.session_state.filters = filters
+                if selected_weeks:
+                    filters['Week'] = selected_weeks
+                
+                st.session_state.filters = filters
                 
                 st.divider()
                 
@@ -545,144 +470,87 @@ def main():
                     help="Sort table columns in alphabetical order"
                 )
                 st.session_state.sort_columns_alphabetically = sort_columns_alphabetically
-        
-        st.divider()
-        
-        # Reset button
+                
+                st.divider()
+                
+                # Reset button
                 if st.button("🔄 Reset Filters", type="secondary"):
-            st.session_state.selected_attributes = []
+                    st.session_state.selected_attributes = []
                     st.session_state.group_by_rows = []
                     st.session_state.group_by_columns = []
-            st.session_state.filters = {}
-            st.session_state.filtered_data = st.session_state.data.copy()
-            st.rerun()
-    
-    # Main content area
-    # Apply filters
-    filtered_data = apply_filters(data, filters)
-    
+                    st.session_state.filters = {}
+                    st.session_state.filtered_data = st.session_state.data.copy()
+                    st.rerun()
+            
+            # Main content area
+            # Apply filters
+            filtered_data = apply_filters(data, filters)
+            
             # Apply row and column grouping (pivot table)
             if group_by_rows or group_by_columns:
                 filtered_data = apply_pivot_table(filtered_data, group_by_rows, group_by_columns, metrics)
-    else:
-        # If no group by, still filter by week if specified
-        if 'Week' in filters:
-            filtered_data = filtered_data[filtered_data['Week'].isin(filters['Week'])]
-    
-    st.session_state.filtered_data = filtered_data
+            else:
+                # If no group by, still filter by week if specified
+                if 'Week' in filters:
+                    filtered_data = filtered_data[filtered_data['Week'].isin(filters['Week'])]
+            
+            st.session_state.filtered_data = filtered_data
             
             # Calculate totals from original filtered data (before pivot)
             filtered_for_totals = apply_filters(data, filters)
-    
-    # Display summary statistics
-    col1, col2, col3, col4 = st.columns(4)
+            
+            # Display summary statistics
+            col1, col2, col3, col4 = st.columns(4)
             
             # Calculate totals from original data (before grouping)
             total_gross_sales = filtered_for_totals['Gross Sales Units'].sum()
             total_receipts = filtered_for_totals['Receipts Units'].sum()
             total_bop = filtered_for_totals['BOP Units'].sum()
             total_on_order = filtered_for_totals['On Order Units'].sum()
-    
-    with col1:
+            
+            with col1:
                 st.metric("Gross Sales Units", f"{total_gross_sales:,.0f}")
-    with col2:
+            with col2:
                 st.metric("Receipts Units", f"{total_receipts:,.0f}")
-    with col3:
+            with col3:
                 st.metric("BOP Units", f"{total_bop:,.0f}")
-    with col4:
+            with col4:
                 st.metric("On Order Units", f"{total_on_order:,.0f}")
-    
-    st.divider()
-    
-    # Display data table
-    st.subheader("📈 Data Table")
-    
+            
+            st.divider()
+            
+            # Display data table
+            st.subheader("📈 Data Table")
+            
             # Prepare columns to display based on selected_attributes
             if len(filtered_data) > 0:
-                # If row grouping is applied, create expandable table
-                if group_by_rows and not group_by_columns:
-                    # Check if Metrics is in row grouping (always expanded)
-                    has_metrics_in_rows = 'Metrics' in group_by_rows
-                    
-                    # Create expandable table
-                    display_df = render_expandable_table(
-                        filtered_data, 
-                        group_by_rows, 
-                        st.session_state.expanded_groups,
-                        metrics
-                    )
-                    
-                    # Add expand/collapse buttons
-                    if not has_metrics_in_rows:
-                        st.info("💡 Click on group rows to expand/collapse details. Metrics are always expanded.")
-                    
-                    # Create expand/collapse controls
-                    if len(filtered_data) > 0:
-                        # Get unique groups for expand/collapse buttons
-                        grouped = filtered_data.groupby(group_by_rows)
-                        col1, col2 = st.columns([3, 1])
-                        
-                        with col2:
-                            st.markdown("**Expand/Collapse:**")
-                            for group_key, group_df in grouped:
-                                group_id = get_group_key(group_key, group_by_rows)
-                                is_expanded = group_id in st.session_state.expanded_groups
-                                
-                                # Skip metrics groups (always expanded)
-                                if 'Metric' in str(group_key) or 'Metrics' in group_by_rows:
-                                    continue
-                                
-                                # Create button label
-                                if isinstance(group_key, tuple):
-                                    label = ' | '.join(str(k) for k in group_key[:2])  # Show first 2 attributes
-                                else:
-                                    label = str(group_key)
-                                
-                                if st.button(
-                                    f"{'▼' if is_expanded else '▶'} {label[:30]}",
-                                    key=f"expand_{group_id}",
-                                    use_container_width=True
-                                ):
-                                    if is_expanded:
-                                        st.session_state.expanded_groups.discard(group_id)
-                                    else:
-                                        st.session_state.expanded_groups.add(group_id)
-                                    st.rerun()
-                    
-                    # Remove the _expand_indicator column before display
-                    if '_expand_indicator' in display_df.columns:
-                        # Move expand indicator to first position
-                        cols = display_df.columns.tolist()
-                        if '_expand_indicator' in cols:
-                            cols.remove('_expand_indicator')
-                            # Optionally keep it or remove it
-                            # For now, let's keep it visible as a column
-                            # display_df = display_df.drop(columns=['_expand_indicator'])
-                
                 # If grouping is applied (columns or both), show all columns
-                elif group_by_columns or (group_by_rows and group_by_columns):
+                if group_by_columns or (group_by_rows and group_by_columns):
+                    display_df = filtered_data
+                elif group_by_rows:
+                    # If only row grouping, show grouped data
                     display_df = filtered_data
                 else:
                     # If no grouping, show selected attributes + metrics
-    display_columns = []
-    
+                    display_columns = []
+                    
                     # Add selected attributes
                     if selected_attributes:
-    for attr in selected_attributes:
+                        for attr in selected_attributes:
                             if attr in filtered_data.columns:
-            display_columns.append(attr)
-        else:
+                                display_columns.append(attr)
+                    else:
                         # If no attributes selected, show all attribute columns
-            display_columns = [col for col in filtered_data.columns if col not in metrics]
-    
-    # Always add metrics
+                        display_columns = [col for col in filtered_data.columns if col not in metrics]
+                    
+                    # Always add metrics
                     for metric in metrics:
                         if metric in filtered_data.columns:
                             display_columns.append(metric)
-    
+                    
                     # Filter to only existing columns
-    display_columns = [col for col in display_columns if col in filtered_data.columns]
-    
+                    display_columns = [col for col in display_columns if col in filtered_data.columns]
+                    
                     if display_columns:
                         display_df = filtered_data[display_columns]
                     else:
@@ -694,19 +562,19 @@ def main():
                     sorted_columns = sorted(display_df.columns.tolist())
                     display_df = display_df[sorted_columns]
                 
-        st.dataframe(
+                st.dataframe(
                     display_df,
-            use_container_width=True,
+                    use_container_width=True,
                     hide_index=False,
                     height=500
-        )
-        
+                )
+                
                 if isinstance(filtered_data, pd.DataFrame):
-        st.caption(f"Showing {len(filtered_data):,} rows")
+                    st.caption(f"Showing {len(filtered_data):,} rows")
                 else:
                     st.caption("Pivot table view")
-    else:
-        st.warning("No data matches the current filters. Please adjust your filters.")
+            else:
+                st.warning("No data matches the current filters. Please adjust your filters.")
     
     # Instructions section
     with st.expander("ℹ️ How to Use This Demo"):
