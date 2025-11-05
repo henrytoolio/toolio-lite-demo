@@ -460,6 +460,17 @@ def main():
                 
                 st.divider()
                 
+                # Column sorting option
+                st.subheader("📊 Display Options")
+                sort_columns_alphabetically = st.checkbox(
+                    "Sort Columns Alphabetically",
+                    value=st.session_state.get('sort_columns_alphabetically', False),
+                    help="Sort table columns in alphabetical order"
+                )
+                st.session_state.sort_columns_alphabetically = sort_columns_alphabetically
+                
+                st.divider()
+                
                 # Reset button
                 if st.button("🔄 Reset Filters", type="secondary"):
                     st.session_state.selected_attributes = []
@@ -539,6 +550,12 @@ def main():
                         display_df = filtered_data[display_columns]
                     else:
                         display_df = filtered_data
+                
+                # Sort columns alphabetically if option is enabled
+                if st.session_state.get('sort_columns_alphabetically', False):
+                    # Sort columns alphabetically
+                    sorted_columns = sorted(display_df.columns.tolist())
+                    display_df = display_df[sorted_columns]
                 
                 st.dataframe(
                     display_df,
