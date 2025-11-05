@@ -133,6 +133,10 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
     if not available_metrics:
         return df
     
+    # Initialize final_row_attrs and final_col_attrs
+    final_row_attrs = row_attributes.copy()
+    final_col_attrs = col_attributes.copy()
+    
     # If metrics are selected for grouping, we need to unpivot/melt ALL metrics together
     if has_metrics_in_rows or has_metrics_in_cols:
         # Unpivot all metrics to make them a single dimension
@@ -144,10 +148,6 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
             var_name='Metric',
             value_name='Value'
         )
-        
-        # Update grouping attributes to include Metric dimension
-        final_row_attrs = row_attributes.copy()
-        final_col_attrs = col_attributes.copy()
         
         if has_metrics_in_rows:
             # Add Metric to row attributes if metrics are grouped by rows
