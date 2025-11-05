@@ -30,6 +30,8 @@ if 'locations' not in st.session_state:
     st.session_state.locations = []
 if 'data_regenerated' not in st.session_state:
     st.session_state.data_regenerated = False
+if 'expanded_groups' not in st.session_state:
+    st.session_state.expanded_groups = set()
 
 def generate_sample_data(locations):
     """Generate sample merchandise plan data for 3 weeks with location and attribute hierarchy"""
@@ -115,6 +117,79 @@ def apply_filters(df, filters):
             filtered_df = filtered_df[filtered_df[attr].isin(value)]
     
     return filtered_df
+
+def get_group_key(group_values, row_attrs):
+    """Create a unique key for a group"""
+    if isinstance(group_values, tuple):
+        return str(group_values)
+    return str(group_values)
+
+def render_expandable_table(df, row_attrs, expanded_groups, metrics):
+    """Render a table with expand/collapse functionality for grouped rows (metrics always expanded)"""
+    if not row_attrs or len(df) == 0:
+        return df
+    
+    # Check if 'Metric' or 'Metrics' is in row_attrs (metrics are always expanded)
+    has_metrics = 'Metric' in row_attrs or 'Metrics' in row_attrs
+    
+    # Get unique groups
+    grouped = df.groupby(row_attrs)
+    
+    # Create a list to store rows to display
+    display_rows = []
+    
+    for group_key, group_df in grouped:
+        # Create unique key for this group
+        group_id = get_group_key(group_key, row_attrs)
+        
+        # Check if this is a metric group (always expanded)
+        is_metric_group = has_metrics and ('Metric' in str(group_key) or 'Metrics' in str(group_key))
+        
+        # Determine if group should be expanded
+        if is_metric_group:
+            is_expanded = True  # Metrics always expanded
+        else:
+            is_expanded = group_id in expanded_groups
+        
+        # Add group header row (summary row)
+        header_row = {}
+        if isinstance(group_key, tuple):
+            for i, attr in enumerate(row_attrs):
+                header_row[attr] = group_key[i] if i < len(group_key) else ''
+        else:
+            header_row[row_attrs[0]] = group_key
+        
+        # Add expand/collapse indicator
+        if not is_metric_group:
+            header_row['_expand_indicator'] = '▶' if not is_expanded else '▼'
+        else:
+            header_row['_expand_indicator'] = ''
+        
+        # Add aggregated metric values for header
+        for metric in metrics:
+            if metric in group_df.columns:
+                header_row[metric] = group_df[metric].sum()
+            elif 'Value' in group_df.columns:
+                # For melted data
+                header_row['Value'] = group_df['Value'].sum()
+        
+        display_rows.append(pd.DataFrame([header_row]))
+        
+        # Add detail rows if expanded
+        if is_expanded:
+            detail_rows = group_df.copy()
+            # Add indentation for detail rows in the first grouped column
+            if len(row_attrs) > 0:
+                first_attr = row_attrs[0]
+                if first_attr in detail_rows.columns:
+                    detail_rows[first_attr] = '  ' + detail_rows[first_attr].astype(str)
+            detail_rows['_expand_indicator'] = ''
+            display_rows.append(detail_rows)
+    
+    if display_rows:
+        result_df = pd.concat(display_rows, ignore_index=True)
+        return result_df
+    return df
 
 def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
     """Create a pivot table with row and column grouping (like Toolio)"""
@@ -534,11 +609,61 @@ def main():
             
             # Prepare columns to display based on selected_attributes
             if len(filtered_data) > 0:
+                # If row grouping is applied (and no column grouping), create expandable table
+                if group_by_rows and not group_by_columns:
+                    # Check if Metrics is in row grouping (always expanded)
+                    has_metrics_in_rows = 'Metrics' in group_by_rows
+                    
+                    # Create expandable table
+                    display_df = render_expandable_table(
+                        filtered_data, 
+                        group_by_rows, 
+                        st.session_state.expanded_groups,
+                        metrics
+                    )
+                    
+                    # Add expand/collapse controls
+                    if not has_metrics_in_rows:
+                        st.info("💡 Click on group rows to expand/collapse details. Metrics are always expanded.")
+                    
+                    # Create expand/collapse buttons
+                    if len(filtered_data) > 0:
+                        # Get unique groups for expand/collapse buttons
+                        grouped = filtered_data.groupby(group_by_rows)
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col2:
+                            st.markdown("**Expand/Collapse:**")
+                            for group_key, group_df in grouped:
+                                group_id = get_group_key(group_key, group_by_rows)
+                                is_expanded = group_id in st.session_state.expanded_groups
+                                
+                                # Skip metrics groups (always expanded)
+                                if 'Metric' in str(group_key) or 'Metrics' in group_by_rows:
+                                    continue
+                                
+                                # Create button label
+                                if isinstance(group_key, tuple):
+                                    label = ' | '.join(str(k) for k in group_key[:2])  # Show first 2 attributes
+                                else:
+                                    label = str(group_key)
+                                
+                                if st.button(
+                                    f"{'▼' if is_expanded else '▶'} {label[:30]}",
+                                    key=f"expand_{group_id}",
+                                    use_container_width=True
+                                ):
+                                    if is_expanded:
+                                        st.session_state.expanded_groups.discard(group_id)
+                                    else:
+                                        st.session_state.expanded_groups.add(group_id)
+                                    st.rerun()
+                    
+                    # Remove the _expand_indicator column before display if you want, or keep it
+                    # For now, we'll keep it visible as a column
+                
                 # If grouping is applied (columns or both), show all columns
-                if group_by_columns or (group_by_rows and group_by_columns):
-                    display_df = filtered_data
-                elif group_by_rows:
-                    # If only row grouping, show grouped data
+                elif group_by_columns or (group_by_rows and group_by_columns):
                     display_df = filtered_data
                 else:
                     # If no grouping, show selected attributes + metrics
