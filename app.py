@@ -70,6 +70,7 @@ def generate_sample_data(locations):
                             'Location': loc_name,
                             'Channel': location.get('channel', ''),
                             'Channel Group': location.get('channel_group', ''),
+                            'Selling Channel': location.get('selling_channel', ''),
                             'Division': division,
                             'Department': department,
                             'Class': class_item
@@ -307,6 +308,15 @@ def main():
                         placeholder="e.g., E-commerce, Brick & Mortar"
                     )
                     location['channel_group'] = channel_group
+                
+                # Selling Channel field
+                selling_channel = st.text_input(
+                    "Selling Channel:",
+                    value=location.get('selling_channel', ''),
+                    key=f"loc_selling_channel_{i}",
+                    placeholder="e.g., Online, Store, Wholesale"
+                )
+                location['selling_channel'] = selling_channel
                 
                 st.markdown("**Location Type:**")
                 col1, col2, col3 = st.columns(3)
