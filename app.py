@@ -88,7 +88,7 @@ def melt_and_pivot(df):
     ).reset_index()
     return pivoted
 
-def build_hierarchy_for_metric(df, attrs, level, parent_key, rows, week_cols):
+def build_hierarchy_for_metric(df, attrs, level, parent_key, rows, week_cols, metric_name):
     if level >= len(attrs):
         return
     attr = attrs[level]
@@ -98,15 +98,21 @@ def build_hierarchy_for_metric(df, attrs, level, parent_key, rows, week_cols):
         key_str = key_tuple_to_str(key_tuple)
         expanded = key_str in st.session_state.expanded_groups
 
-        header = {a: "" for a in attrs}
+        header = {"Metric": ""}  # Empty metric column for attribute rows
+        for a in attrs:
+            header[a] = ""
         header[attr] = ("  " * level) + (str(val) if val else "(blank)")
         header["_expand_indicator"] = "▼" if expanded else "▶"
         for w in week_cols:
             header[w] = gdf[w].sum() if w in gdf.columns else 0
         rows.append(header)
 
-        if expanded and level + 1 < len(attrs):
-            build_hierarchy_for_metric(gdf, attrs, level + 1, key_tuple, rows, week_cols)
+        if expanded:
+            if level + 1 < len(attrs):
+                build_hierarchy_for_metric(gdf, attrs, level + 1, key_tuple, rows, week_cols, metric_name)
+            else:
+                # Leaf level - show detail rows if needed
+                pass
 
 # -----------------------------
 # Main App
@@ -127,7 +133,7 @@ def main():
             st.session_state.filtered_data = st.session_state.data.copy()
             st.success("✓ Data generated successfully!")
             st.rerun()
-
+    
         if st.session_state.data is not None:
             st.dataframe(st.session_state.data.head(10), use_container_width=True)
 
@@ -166,13 +172,17 @@ def main():
 
         rows = []
         for metric, gdf in df_m.groupby("Metric"):
-            metric_row = {"_expand_indicator": "", row_attrs[0] if row_attrs else "Metric": f"**{metric}**"}
+            # Metric header row (always expanded, no expand indicator)
+            metric_row = {"_expand_indicator": "", "Metric": f"**{metric}**"}
+            for a in row_attrs:
+                metric_row[a] = ""
             for w in week_cols:
                 metric_row[w] = gdf[w].sum()
             rows.append(metric_row)
 
+            # Build attribute hierarchy under this metric (always expanded for metrics)
             if row_attrs:
-                build_hierarchy_for_metric(gdf, row_attrs, 0, (metric,), rows, week_cols)
+                build_hierarchy_for_metric(gdf, row_attrs, 0, (metric,), rows, week_cols, metric)
 
         display_df = pd.DataFrame(rows)
         ordered_cols = ["_expand_indicator", "Metric"] + row_attrs + week_cols
@@ -180,6 +190,30 @@ def main():
             if col not in display_df.columns:
                 display_df[col] = ""
         display_df = display_df[ordered_cols]
+
+        # Expand/Collapse buttons for attribute groups (metrics are always expanded)
+        if row_attrs and len(rows) > 0:
+            st.subheader("🔽 Expand / Collapse")
+            # Get unique top-level attribute groups
+            top_attr = row_attrs[0]
+            unique_groups = set()
+            for metric_name, gdf in df_m.groupby("Metric"):
+                for val in gdf[top_attr].dropna().unique():
+                    unique_groups.add((metric_name, val))
+            
+            if unique_groups:
+                cols = st.columns(min(4, max(1, len(unique_groups))))
+                for i, (metric_name, val) in enumerate(sorted(unique_groups)):
+                    key_str = key_tuple_to_str((metric_name, val))
+                    expanded = key_str in st.session_state.expanded_groups
+                    label = f"{metric_name[:15]}... → {str(val)[:15]}"
+                    with cols[i % len(cols)]:
+                        if st.button(f"{'▼' if expanded else '▶'} {label}", key=f"expand_{key_str}"):
+                            if expanded:
+                                st.session_state.expanded_groups.discard(key_str)
+                            else:
+                                st.session_state.expanded_groups.add(key_str)
+                            st.rerun()
 
         st.subheader("📈 Data Table (Toolio Layout)")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
