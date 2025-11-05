@@ -118,21 +118,22 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
     if not row_attrs and not col_attrs:
         return df
     
-    # Separate metrics from attributes in grouping
-    metric_list = ['Gross Sales Units', 'Receipts Units', 'BOP Units', 'On Order Units']
-    row_metrics = [m for m in row_attrs if m in metric_list]
-    col_metrics = [m for m in col_attrs if m in metric_list]
-    row_attributes = [a for a in row_attrs if a not in metric_list]
-    col_attributes = [a for a in col_attrs if a not in metric_list]
+    # Check if "Metrics" is selected (treats all metrics as one dimension)
+    has_metrics_in_rows = 'Metrics' in row_attrs
+    has_metrics_in_cols = 'Metrics' in col_attrs
+    
+    # Remove "Metrics" from grouping - we'll treat all metrics as one dimension
+    row_attributes = [a for a in row_attrs if a != 'Metrics']
+    col_attributes = [a for a in col_attrs if a != 'Metrics']
     
     # Ensure metrics exist in dataframe
     available_metrics = [m for m in all_metrics if m in df.columns]
     if not available_metrics:
         return df
     
-    # If metrics are selected for grouping, we need to unpivot/melt the data
-    if row_metrics or col_metrics:
-        # Unpivot metrics to make them a dimension
+    # If metrics are selected for grouping, we need to unpivot/melt ALL metrics together
+    if has_metrics_in_rows or has_metrics_in_cols:
+        # Unpivot all metrics to make them a single dimension
         id_vars = [col for col in df.columns if col not in available_metrics]
         melted_df = pd.melt(
             df,
@@ -146,18 +147,15 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
         final_row_attrs = row_attributes.copy()
         final_col_attrs = col_attributes.copy()
         
-        if row_metrics:
+        if has_metrics_in_rows:
             # Add Metric to row attributes if metrics are grouped by rows
             if 'Metric' not in final_row_attrs:
                 final_row_attrs.append('Metric')
-        elif col_metrics:
+        
+        if has_metrics_in_cols:
             # Add Metric to column attributes if metrics are grouped by columns
             if 'Metric' not in final_col_attrs:
                 final_col_attrs.append('Metric')
-        else:
-            # If metrics specified but not in row/col, add to rows by default
-            if 'Metric' not in final_row_attrs:
-                final_row_attrs.append('Metric')
         
         # Use melted dataframe and Value as the metric
         working_df = melted_df
@@ -168,9 +166,9 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
         value_col = available_metrics[0] if len(available_metrics) == 1 else available_metrics
     
     # If only row grouping (no column grouping)
-    if (row_attributes or row_metrics) and not (col_attributes or col_metrics):
-        if row_metrics:
-            # Group by rows including Metric
+    if (row_attributes or has_metrics_in_rows) and not (col_attributes or has_metrics_in_cols):
+        if has_metrics_in_rows:
+            # Group by rows including Metric (all metrics together)
             grouped = working_df.groupby(final_row_attrs)[value_col].sum().reset_index()
         else:
             # Group by rows and sum all metrics
@@ -178,9 +176,9 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
         return grouped
     
     # If only column grouping (no row grouping)
-    if (col_attributes or col_metrics) and not (row_attributes or row_metrics):
-        if col_metrics:
-            # Group by columns including Metric
+    if (col_attributes or has_metrics_in_cols) and not (row_attributes or has_metrics_in_rows):
+        if has_metrics_in_cols:
+            # Group by columns including Metric (all metrics together)
             grouped = working_df.groupby(final_col_attrs)[value_col].sum().reset_index()
         else:
             # Group by columns and sum all metrics
@@ -188,8 +186,8 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
         return grouped
     
     # Both row and column grouping - create pivot table
-    if row_metrics or col_metrics:
-        # Pivot with Metric as a dimension
+    if has_metrics_in_rows or has_metrics_in_cols:
+        # Pivot with Metric as a dimension (all metrics grouped together)
         try:
             pivot = pd.pivot_table(
                 working_df,
@@ -393,8 +391,8 @@ def main():
                 metrics = ['Gross Sales Units', 'Receipts Units', 'BOP Units', 'On Order Units']
                 available_attributes = [col for col in data.columns if col not in metrics]
                 
-                # All options for grouping (attributes + metrics)
-                all_grouping_options = available_attributes + metrics
+                # All options for grouping (attributes + "Metrics" as single option)
+                all_grouping_options = available_attributes + ['Metrics']
                 
                 st.subheader("📋 Select Attributes to Display")
                 selected_attributes = st.multiselect(
