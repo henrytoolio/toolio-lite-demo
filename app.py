@@ -113,66 +113,138 @@ def apply_filters(df, filters):
     
     return filtered_df
 
-def apply_pivot_table(df, row_attrs, col_attrs, metrics):
+def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
     """Create a pivot table with row and column grouping (like Toolio)"""
     if not row_attrs and not col_attrs:
         return df
     
+    # Separate metrics from attributes in grouping
+    metric_list = ['Gross Sales Units', 'Receipts Units', 'BOP Units', 'On Order Units']
+    row_metrics = [m for m in row_attrs if m in metric_list]
+    col_metrics = [m for m in col_attrs if m in metric_list]
+    row_attributes = [a for a in row_attrs if a not in metric_list]
+    col_attributes = [a for a in col_attrs if a not in metric_list]
+    
     # Ensure metrics exist in dataframe
-    available_metrics = [m for m in metrics if m in df.columns]
+    available_metrics = [m for m in all_metrics if m in df.columns]
     if not available_metrics:
         return df
     
+    # If metrics are selected for grouping, we need to unpivot/melt the data
+    if row_metrics or col_metrics:
+        # Unpivot metrics to make them a dimension
+        id_vars = [col for col in df.columns if col not in available_metrics]
+        melted_df = pd.melt(
+            df,
+            id_vars=id_vars,
+            value_vars=available_metrics,
+            var_name='Metric',
+            value_name='Value'
+        )
+        
+        # Update grouping attributes to include Metric dimension
+        final_row_attrs = row_attributes.copy()
+        final_col_attrs = col_attributes.copy()
+        
+        if row_metrics:
+            # Add Metric to row attributes if metrics are grouped by rows
+            if 'Metric' not in final_row_attrs:
+                final_row_attrs.append('Metric')
+        elif col_metrics:
+            # Add Metric to column attributes if metrics are grouped by columns
+            if 'Metric' not in final_col_attrs:
+                final_col_attrs.append('Metric')
+        else:
+            # If metrics specified but not in row/col, add to rows by default
+            if 'Metric' not in final_row_attrs:
+                final_row_attrs.append('Metric')
+        
+        # Use melted dataframe and Value as the metric
+        working_df = melted_df
+        value_col = 'Value'
+    else:
+        # No metrics in grouping, use original dataframe
+        working_df = df
+        value_col = available_metrics[0] if len(available_metrics) == 1 else available_metrics
+    
     # If only row grouping (no column grouping)
-    if row_attrs and not col_attrs:
-        # Group by rows and sum metrics
-        grouped = df.groupby(row_attrs)[available_metrics].sum().reset_index()
+    if (row_attributes or row_metrics) and not (col_attributes or col_metrics):
+        if row_metrics:
+            # Group by rows including Metric
+            grouped = working_df.groupby(final_row_attrs)[value_col].sum().reset_index()
+        else:
+            # Group by rows and sum all metrics
+            grouped = working_df.groupby(row_attributes)[available_metrics].sum().reset_index()
         return grouped
     
     # If only column grouping (no row grouping)
-    if col_attrs and not row_attrs:
-        # Group by columns and sum metrics
-        grouped = df.groupby(col_attrs)[available_metrics].sum().reset_index()
+    if (col_attributes or col_metrics) and not (row_attributes or row_metrics):
+        if col_metrics:
+            # Group by columns including Metric
+            grouped = working_df.groupby(final_col_attrs)[value_col].sum().reset_index()
+        else:
+            # Group by columns and sum all metrics
+            grouped = working_df.groupby(col_attributes)[available_metrics].sum().reset_index()
         return grouped
     
     # Both row and column grouping - create pivot table
-    # For each metric, create a pivot table
-    pivot_tables = []
-    for metric in available_metrics:
+    if row_metrics or col_metrics:
+        # Pivot with Metric as a dimension
         try:
             pivot = pd.pivot_table(
-                df,
-                values=metric,
-                index=row_attrs,
-                columns=col_attrs,
+                working_df,
+                values=value_col,
+                index=final_row_attrs if final_row_attrs else ['Metric'],
+                columns=final_col_attrs if final_col_attrs else ['Metric'],
                 aggfunc='sum',
                 fill_value=0
             )
             # Flatten column names if multi-level
             if isinstance(pivot.columns, pd.MultiIndex):
                 pivot.columns = [f"{'_'.join(map(str, col))}" for col in pivot.columns.values]
-            else:
-                # If single column, add metric name
-                if len(available_metrics) > 1:
-                    pivot.columns = [f"{col}_{metric}" for col in pivot.columns]
-            
-            pivot_tables.append(pivot)
+            return pivot
         except Exception as e:
-            st.error(f"Error creating pivot table for {metric}: {e}")
-            continue
-    
-    # Combine pivot tables (if multiple metrics)
-    if len(pivot_tables) == 0:
-        return df
-    elif len(pivot_tables) == 1:
-        return pivot_tables[0]
+            st.error(f"Error creating pivot table: {e}")
+            return df
     else:
-        # For multiple metrics, concatenate side by side
-        result = pivot_tables[0]
-        for pt in pivot_tables[1:]:
-            # Align by index
-            result = pd.concat([result, pt], axis=1)
-        return result
+        # Standard pivot table with attributes only
+        # For each metric, create a pivot table
+        pivot_tables = []
+        for metric in available_metrics:
+            try:
+                pivot = pd.pivot_table(
+                    working_df,
+                    values=metric,
+                    index=row_attributes,
+                    columns=col_attributes,
+                    aggfunc='sum',
+                    fill_value=0
+                )
+                # Flatten column names if multi-level
+                if isinstance(pivot.columns, pd.MultiIndex):
+                    pivot.columns = [f"{'_'.join(map(str, col))}" for col in pivot.columns.values]
+                else:
+                    # If single column, add metric name
+                    if len(available_metrics) > 1:
+                        pivot.columns = [f"{col}_{metric}" for col in pivot.columns]
+                
+                pivot_tables.append(pivot)
+            except Exception as e:
+                st.error(f"Error creating pivot table for {metric}: {e}")
+                continue
+        
+        # Combine pivot tables (if multiple metrics)
+        if len(pivot_tables) == 0:
+            return df
+        elif len(pivot_tables) == 1:
+            return pivot_tables[0]
+        else:
+            # For multiple metrics, concatenate side by side
+            result = pivot_tables[0]
+            for pt in pivot_tables[1:]:
+                # Align by index
+                result = pd.concat([result, pt], axis=1)
+            return result
 
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
@@ -321,6 +393,9 @@ def main():
                 metrics = ['Gross Sales Units', 'Receipts Units', 'BOP Units', 'On Order Units']
                 available_attributes = [col for col in data.columns if col not in metrics]
                 
+                # All options for grouping (attributes + metrics)
+                all_grouping_options = available_attributes + metrics
+                
                 st.subheader("📋 Select Attributes to Display")
                 selected_attributes = st.multiselect(
                     "Choose attributes to show in the table:",
@@ -337,9 +412,9 @@ def main():
                 st.markdown("**Group by Rows** (vertical grouping)")
                 group_by_rows = st.multiselect(
                     "Rows:",
-                    options=available_attributes,
+                    options=all_grouping_options,
                     default=st.session_state.group_by_rows,
-                    help="Attributes to group by rows (vertical grouping)"
+                    help="Attributes or metrics to group by rows (vertical grouping)"
                 )
                 st.session_state.group_by_rows = group_by_rows
                 
@@ -347,9 +422,9 @@ def main():
                 st.info("💡 Tip: Put 'Week' in columns to see time across the top (like Toolio)")
                 group_by_columns = st.multiselect(
                     "Columns:",
-                    options=available_attributes,
+                    options=all_grouping_options,
                     default=st.session_state.group_by_columns,
-                    help="Attributes to group by columns (horizontal grouping - creates pivot table)"
+                    help="Attributes or metrics to group by columns (horizontal grouping - creates pivot table)"
                 )
                 st.session_state.group_by_columns = group_by_columns
                 
