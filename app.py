@@ -185,7 +185,7 @@ def apply_pivot_table(df, row_attrs, col_attrs, all_metrics):
         else:
             # Group by columns and sum all metrics
             grouped = working_df.groupby(col_attributes)[available_metrics].sum().reset_index()
-    return grouped
+        return grouped
     
     # Both row and column grouping - create pivot table
     if has_metrics_in_rows or has_metrics_in_cols:
