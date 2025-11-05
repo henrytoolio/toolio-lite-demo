@@ -694,23 +694,23 @@ def main():
                     sorted_columns = sorted(display_df.columns.tolist())
                     display_df = display_df[sorted_columns]
                 
-                st.dataframe(
+        st.dataframe(
                     display_df,
-                    use_container_width=True,
+            use_container_width=True,
                     hide_index=False,
                     height=500
-                )
-                
+        )
+        
                 if isinstance(filtered_data, pd.DataFrame):
-                    st.caption(f"Showing {len(filtered_data):,} rows")
+        st.caption(f"Showing {len(filtered_data):,} rows")
                 else:
                     st.caption("Pivot table view")
-            else:
-                st.warning("No data matches the current filters. Please adjust your filters.")
-            
-            # Instructions section
-            with st.expander("ℹ️ How to Use This Demo"):
-                st.markdown("""
+    else:
+        st.warning("No data matches the current filters. Please adjust your filters.")
+    
+    # Instructions section
+    with st.expander("ℹ️ How to Use This Demo"):
+        st.markdown("""
                 ### Configuration Tab:
                 1. **Locations**: Add up to 10 locations with:
                    - Location Name, Channel, Channel Group
