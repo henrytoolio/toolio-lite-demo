@@ -4,6 +4,8 @@ import numpy as np
 from datetime import datetime, timedelta
 from itertools import product
 
+# Toolio Lite Demo App
+
 # Page configuration
 st.set_page_config(
     page_title="Toolio Lite - Merchandise Plan Demo",
