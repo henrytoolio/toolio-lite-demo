@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Toolio Lite Demo App (Metrics in Rows, Weeks in Columns, Hierarchical Expand/Collapse)
+# Toolio Lite Demo App (Metrics Always Visible, Weeks in Columns, Expand/Collapse for Attributes Only)
 
 st.set_page_config(page_title="Toolio Lite - Merchandise Plan Demo", page_icon="📊", layout="wide")
 
@@ -92,9 +92,6 @@ def melt_and_pivot(df):
     ).reset_index()
     return pivoted
 
-def sum_week_columns(df, week_cols):
-    return {c: df[c].sum() for c in week_cols}
-
 def build_expandable_rows(df, row_attrs, level, parent_key, rows, week_cols):
     if level >= len(row_attrs):
         return
@@ -107,41 +104,38 @@ def build_expandable_rows(df, row_attrs, level, parent_key, rows, week_cols):
         key_str = key_tuple_to_str(key_tuple)
         expanded = key_str in st.session_state.expanded_groups
 
-        # Header row (group roll-up)
+        # Header row for attribute level
         header = {a: "" for a in row_attrs}
         header[attr] = ("  " * level) + (str(value) if value else "(blank)")
         header["_expand_indicator"] = "▼" if expanded else "▶"
-
-        # Roll-up totals for all metrics
-        totals = gdf.groupby("Metric").sum(numeric_only=True)
         for w in week_cols:
-            header[w] = totals[w].sum() if w in totals.columns else 0
+            header[w] = gdf[w].sum() if w in gdf.columns else 0
         rows.append(header)
 
-        # Drill down
-        if expanded:
-            if level + 1 < len(row_attrs):
-                build_expandable_rows(gdf, row_attrs, level + 1, key_tuple, rows, week_cols)
-            else:
-                # At lowest group level, list metrics in rows
-                for metric, mdf in gdf.groupby("Metric"):
-                    m_row = {a: "" for a in row_attrs}
-                    m_row[row_attrs[-1]] = ("  " * (level + 1)) + metric
-                    m_row["_expand_indicator"] = ""
-                    for w in week_cols:
-                        m_row[w] = mdf[w].sum() if w in mdf.columns else 0
-                    rows.append(m_row)
+        # Always render metrics for each group (never collapsible)
+        metrics_summary = gdf.groupby("Metric").sum(numeric_only=True)
+        for metric, row_vals in metrics_summary.iterrows():
+            metric_row = {a: "" for a in row_attrs}
+            metric_row[row_attrs[-1]] = ("  " * (level + 1)) + metric
+            metric_row["_expand_indicator"] = ""
+            for w in week_cols:
+                metric_row[w] = row_vals[w] if w in row_vals.index else 0
+            rows.append(metric_row)
+
+        # Drill down only for attribute hierarchy (metrics are never collapsed)
+        if expanded and level + 1 < len(row_attrs):
+            build_expandable_rows(gdf, row_attrs, level + 1, key_tuple, rows, week_cols)
 
 # -----------------------------
 # Main App
 # -----------------------------
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
-    st.markdown("Metrics in rows • Weeks in columns • Hierarchical expand/collapse")
+    st.markdown("Metrics always visible • Weeks in columns • Expand/Collapse only for attributes")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
 
-    # ---------------- Configuration ----------------
+    # Configuration
     with config_tab:
         st.header("Location Configuration")
         if not st.session_state.locations:
@@ -179,7 +173,7 @@ def main():
             st.subheader("📊 Data Preview")
             st.dataframe(st.session_state.data.head(10), use_container_width=True)
 
-    # ---------------- Data View ----------------
+    # Data View
     with view_tab:
         if st.session_state.data is None:
             st.warning("⚠️ Generate data first.")
@@ -238,15 +232,11 @@ def main():
                 display_df[col] = ""
         display_df = display_df[ordered_cols]
 
-        st.subheader("📈 Data Table (Metrics in Rows, Weeks in Columns)")
+        st.subheader("📈 Data Table (Metrics Always Visible, Weeks in Columns)")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
-        st.caption("Metrics always appear in rows within each expanded group. Weeks span columns like Toolio.")
-
-        with st.expander("ℹ️ How to Use This Demo"):
-            st.markdown(
-                """### Configuration Tab:\n1. Configure Locations (up to 10) with Channel, Channel Group, etc.\n2. Generate Data.\n\n### Data View Tab:\n1. Group by Rows → choose attributes to show (e.g., Channel, Channel Group).\n2. Weeks are across columns automatically.\n3. Metrics appear as sub-rows under each group and are always visible.\n4. Expand/Collapse controls reveal or hide lower levels in the hierarchy.\n\n### Example:\nGroup by: Channel → Channel Group.\n- Collapse Channel to see totals.\n- Expand Channel to see Channel Groups.\n- Each expanded level shows metrics as rows across week columns."""
-            )
+        st.caption("Metrics are always visible under each group; only attributes can be collapsed or expanded.")
 
 if __name__ == "__main__":
     main()
+
 
