@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Toolio Lite Demo App (Metrics Always Visible, Weeks in Columns, Expand/Collapse for Attributes Only)
+# Toolio Lite Demo App - Toolio-style layout
+# Metric as top-level, attributes nested, weeks as columns
 
 st.set_page_config(page_title="Toolio Lite - Merchandise Plan Demo", page_icon="📊", layout="wide")
 
@@ -21,9 +22,6 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# -----------------------------
-# Constants
-# -----------------------------
 METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units"]
 
 # -----------------------------
@@ -32,7 +30,7 @@ METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units"]
 def generate_sample_data(locations):
     np.random.seed(42)
     start_date = datetime.now().replace(day=1)
-    weeks = [(start_date + timedelta(weeks=i)).strftime("%Y-%m-%d") for i in range(3)]
+    weeks = [(start_date + timedelta(weeks=i)).strftime("%Y-%m-%d") for i in range(4)]
     divisions = ["Mens", "Womens"]
     departments = ["Bottoms", "Tops"]
     classes = {"Tops": ["Long Sleeve", "Short Sleeve"], "Bottoms": ["Short Leg", "Long Leg"]}
@@ -45,10 +43,8 @@ def generate_sample_data(locations):
                         data.append(
                             {
                                 "Week": week,
-                                "Location": loc.get("name", ""),
                                 "Channel": loc.get("channel", ""),
                                 "Channel Group": loc.get("channel_group", ""),
-                                "Selling Channel": loc.get("selling_channel", ""),
                                 "Division": div,
                                 "Department": dept,
                                 "Class": cls,
@@ -92,88 +88,49 @@ def melt_and_pivot(df):
     ).reset_index()
     return pivoted
 
-def build_expandable_rows(df, row_attrs, level, parent_key, rows, week_cols):
-    if level >= len(row_attrs):
+def build_hierarchy_for_metric(df, attrs, level, parent_key, rows, week_cols):
+    if level >= len(attrs):
         return
-
-    attr = row_attrs[level]
+    attr = attrs[level]
     groups = df.groupby(attr, dropna=False)
-
-    for value, gdf in groups:
-        key_tuple = parent_key + (value,)
+    for val, gdf in groups:
+        key_tuple = parent_key + (val,)
         key_str = key_tuple_to_str(key_tuple)
         expanded = key_str in st.session_state.expanded_groups
 
-        # Header row for attribute level
-        header = {a: "" for a in row_attrs}
-        header[attr] = ("  " * level) + (str(value) if value else "(blank)")
+        header = {a: "" for a in attrs}
+        header[attr] = ("  " * level) + (str(val) if val else "(blank)")
         header["_expand_indicator"] = "▼" if expanded else "▶"
         for w in week_cols:
             header[w] = gdf[w].sum() if w in gdf.columns else 0
         rows.append(header)
 
-        # Always render metrics for each group (never collapsible)
-        metrics_summary = gdf.groupby("Metric").sum(numeric_only=True)
-        for metric, row_vals in metrics_summary.iterrows():
-            metric_row = {a: "" for a in row_attrs}
-            metric_row[row_attrs[-1]] = ("  " * (level + 1)) + metric
-            metric_row["_expand_indicator"] = ""
-            for w in week_cols:
-                metric_row[w] = row_vals[w] if w in row_vals.index else 0
-            rows.append(metric_row)
-
-        # Drill down only for attribute hierarchy (metrics are never collapsed)
-        if expanded and level + 1 < len(row_attrs):
-            build_expandable_rows(gdf, row_attrs, level + 1, key_tuple, rows, week_cols)
+        if expanded and level + 1 < len(attrs):
+            build_hierarchy_for_metric(gdf, attrs, level + 1, key_tuple, rows, week_cols)
 
 # -----------------------------
 # Main App
 # -----------------------------
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
-    st.markdown("Metrics always visible • Weeks in columns • Expand/Collapse only for attributes")
+    st.markdown("Toolio-style layout: Metric as top-level, attributes nested, weeks as columns")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
 
-    # Configuration
     with config_tab:
         st.header("Location Configuration")
         if not st.session_state.locations:
-            st.session_state.locations = [{} for _ in range(3)]
-
-        c_add, c_remove = st.columns(2)
-        with c_add:
-            if st.button("➕ Add Location", disabled=len(st.session_state.locations) >= 10):
-                st.session_state.locations.append({})
-                st.rerun()
-        with c_remove:
-            if st.button("➖ Remove Last Location", disabled=len(st.session_state.locations) <= 1):
-                st.session_state.locations.pop()
-                st.rerun()
-
-        for i, loc in enumerate(st.session_state.locations):
-            with st.expander(f"📍 Location {i+1}", expanded=i < 2):
-                c1, c2, c3 = st.columns(3)
-                loc["name"] = c1.text_input("Location Name", loc.get("name", ""), key=f"name_{i}")
-                loc["channel"] = c2.text_input("Channel", loc.get("channel", ""), key=f"channel_{i}")
-                loc["channel_group"] = c3.text_input("Channel Group", loc.get("channel_group", ""), key=f"cg_{i}")
-                loc["selling_channel"] = st.text_input("Selling Channel", loc.get("selling_channel", ""), key=f"sc_{i}")
+            st.session_state.locations = [{"channel": "Ecom", "channel_group": "Store"}, {"channel": "Wholesale", "channel_group": "Web"}]
 
         if st.button("🔄 Generate Data", type="primary"):
-            valids = [l for l in st.session_state.locations if l.get("name")]
-            if not valids:
-                st.error("⚠️ Please add at least one location name.")
-            else:
-                st.session_state.data = generate_sample_data(valids)
-                st.session_state.filtered_data = st.session_state.data.copy()
-                st.success("✓ Data generated successfully!")
-                st.rerun()
+            st.session_state.data = generate_sample_data(st.session_state.locations)
+            st.session_state.filtered_data = st.session_state.data.copy()
+            st.success("✓ Data generated successfully!")
+            st.rerun()
 
         if st.session_state.data is not None:
-            st.subheader("📊 Data Preview")
             st.dataframe(st.session_state.data.head(10), use_container_width=True)
 
-    # Data View
     with view_tab:
         if st.session_state.data is None:
             st.warning("⚠️ Generate data first.")
@@ -185,7 +142,7 @@ def main():
         with st.sidebar:
             st.header("⚙️ Controls")
             row_attrs = st.multiselect(
-                "Group by Rows",
+                "Group by Attributes",
                 options=[c for c in all_attrs if c != "Week"],
                 default=["Channel", "Channel Group"],
             )
@@ -199,44 +156,35 @@ def main():
             st.session_state.group_by_rows = row_attrs
             st.session_state.filters = filters
 
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("Expand All"):
-                    df_m = melt_and_pivot(apply_filters(df, filters))
-                    groups = df_m.groupby(row_attrs)
-                    st.session_state.expanded_groups = {key_tuple_to_str(k if isinstance(k, tuple) else (k,)) for k, _ in groups}
-                    st.rerun()
-            with c2:
-                if st.button("Collapse All"):
-                    st.session_state.expanded_groups.clear()
-                    st.rerun()
+            if st.button("Collapse All"):
+                st.session_state.expanded_groups.clear()
+                st.rerun()
 
         df_filtered = apply_filters(df, st.session_state.filters)
         df_m = melt_and_pivot(df_filtered)
         week_cols = [c for c in df_m.columns if c not in all_attrs + ["Metric"]]
 
         rows = []
-        if row_attrs:
-            build_expandable_rows(df_m, row_attrs, 0, tuple(), rows, week_cols)
-        else:
-            for metric, gdf in df_m.groupby("Metric"):
-                row = {"_expand_indicator": "", row_attrs[-1] if row_attrs else "Metric": metric}
-                for w in week_cols:
-                    row[w] = gdf[w].sum()
-                rows.append(row)
+        for metric, gdf in df_m.groupby("Metric"):
+            metric_row = {"_expand_indicator": "", row_attrs[0] if row_attrs else "Metric": f"**{metric}**"}
+            for w in week_cols:
+                metric_row[w] = gdf[w].sum()
+            rows.append(metric_row)
+
+            if row_attrs:
+                build_hierarchy_for_metric(gdf, row_attrs, 0, (metric,), rows, week_cols)
 
         display_df = pd.DataFrame(rows)
-        ordered_cols = ["_expand_indicator"] + row_attrs + week_cols
+        ordered_cols = ["_expand_indicator", "Metric"] + row_attrs + week_cols
         for col in ordered_cols:
             if col not in display_df.columns:
                 display_df[col] = ""
         display_df = display_df[ordered_cols]
 
-        st.subheader("📈 Data Table (Metrics Always Visible, Weeks in Columns)")
+        st.subheader("📈 Data Table (Toolio Layout)")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
-        st.caption("Metrics are always visible under each group; only attributes can be collapsed or expanded.")
+        st.caption("Metric is top-level; attributes nest beneath. Weeks are columns. Expand/collapse applies only to attributes.")
 
 if __name__ == "__main__":
     main()
-
 
