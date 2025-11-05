@@ -614,42 +614,42 @@ def main():
                     # Check if Metrics is in row grouping (always expanded)
                     has_metrics_in_rows = 'Metrics' in group_by_rows
                     
-                    # Create expandable table
-                    display_df = render_expandable_table(
-                        filtered_data, 
-                        group_by_rows, 
-                        st.session_state.expanded_groups,
-                        metrics
-                    )
+                    # Create expand/collapse controls BEFORE the table
+                    st.markdown("**🔽 Expand/Collapse Groups:**")
+                    st.info("💡 Click the buttons below to expand/collapse groups. Metrics are always expanded.")
                     
-                    # Add expand/collapse controls
-                    if not has_metrics_in_rows:
-                        st.info("💡 Click on group rows to expand/collapse details. Metrics are always expanded.")
+                    # Get unique groups for expand/collapse buttons
+                    grouped = filtered_data.groupby(group_by_rows)
+                    groups_list = list(grouped)
                     
-                    # Create expand/collapse buttons
-                    if len(filtered_data) > 0:
-                        # Get unique groups for expand/collapse buttons
-                        grouped = filtered_data.groupby(group_by_rows)
-                        col1, col2 = st.columns([3, 1])
+                    # Create expand/collapse buttons in a horizontal layout
+                    if len(groups_list) > 0:
+                        # Calculate number of columns (max 4 per row)
+                        num_buttons = len([g for g in groups_list if not ('Metric' in str(g[0]) or 'Metrics' in group_by_rows)])
+                        cols_per_row = min(4, num_buttons) if num_buttons > 0 else 1
                         
-                        with col2:
-                            st.markdown("**Expand/Collapse:**")
-                            for group_key, group_df in grouped:
-                                group_id = get_group_key(group_key, group_by_rows)
-                                is_expanded = group_id in st.session_state.expanded_groups
-                                
-                                # Skip metrics groups (always expanded)
-                                if 'Metric' in str(group_key) or 'Metrics' in group_by_rows:
-                                    continue
-                                
-                                # Create button label
-                                if isinstance(group_key, tuple):
-                                    label = ' | '.join(str(k) for k in group_key[:2])  # Show first 2 attributes
-                                else:
-                                    label = str(group_key)
-                                
+                        button_cols = st.columns(cols_per_row)
+                        button_idx = 0
+                        
+                        for group_key, group_df in groups_list:
+                            group_id = get_group_key(group_key, group_by_rows)
+                            
+                            # Skip metrics groups (always expanded)
+                            if 'Metric' in str(group_key) or 'Metrics' in group_by_rows:
+                                continue
+                            
+                            is_expanded = group_id in st.session_state.expanded_groups
+                            
+                            # Create button label
+                            if isinstance(group_key, tuple):
+                                label = ' | '.join(str(k) for k in group_key[:2])  # Show first 2 attributes
+                            else:
+                                label = str(group_key)
+                            
+                            # Place button in column
+                            with button_cols[button_idx % cols_per_row]:
                                 if st.button(
-                                    f"{'▼' if is_expanded else '▶'} {label[:30]}",
+                                    f"{'▼' if is_expanded else '▶'} {label[:25]}",
                                     key=f"expand_{group_id}",
                                     use_container_width=True
                                 ):
@@ -658,9 +658,18 @@ def main():
                                     else:
                                         st.session_state.expanded_groups.add(group_id)
                                     st.rerun()
+                            
+                            button_idx += 1
                     
-                    # Remove the _expand_indicator column before display if you want, or keep it
-                    # For now, we'll keep it visible as a column
+                    st.divider()
+                    
+                    # Create expandable table AFTER controls
+                    display_df = render_expandable_table(
+                        filtered_data, 
+                        group_by_rows, 
+                        st.session_state.expanded_groups,
+                        metrics
+                    )
                 
                 # If grouping is applied (columns or both), show all columns
                 elif group_by_columns or (group_by_rows and group_by_columns):
