@@ -118,43 +118,53 @@ def apply_pivot_table(df, row_attrs, col_attrs, metrics):
     if not row_attrs and not col_attrs:
         return df
     
+    # Ensure metrics exist in dataframe
+    available_metrics = [m for m in metrics if m in df.columns]
+    if not available_metrics:
+        return df
+    
     # If only row grouping (no column grouping)
     if row_attrs and not col_attrs:
-        grouped = df.groupby(row_attrs)[metrics].sum().reset_index()
+        # Group by rows and sum metrics
+        grouped = df.groupby(row_attrs)[available_metrics].sum().reset_index()
         return grouped
     
     # If only column grouping (no row grouping)
     if col_attrs and not row_attrs:
-        # Group by columns
-        grouped = df.groupby(col_attrs)[metrics].sum().reset_index()
+        # Group by columns and sum metrics
+        grouped = df.groupby(col_attrs)[available_metrics].sum().reset_index()
         return grouped
     
     # Both row and column grouping - create pivot table
     # For each metric, create a pivot table
     pivot_tables = []
-    for metric in metrics:
-        pivot = pd.pivot_table(
-            df,
-            values=metric,
-            index=row_attrs,
-            columns=col_attrs,
-            aggfunc='sum',
-            fill_value=0
-        )
-        # Flatten column names if multi-level
-        if isinstance(pivot.columns, pd.MultiIndex):
-            pivot.columns = ['_'.join(map(str, col)).strip() for col in pivot.columns.values]
-        else:
-            pivot.columns = [f"{col}_{metric}" if col != metric else metric for col in pivot.columns]
-        
-        # Add metric name as suffix if multiple metrics
-        if len(metrics) > 1:
-            pivot.columns = [f"{col}_{metric}" if not str(col).endswith(metric) else str(col) for col in pivot.columns]
-        
-        pivot_tables.append(pivot)
+    for metric in available_metrics:
+        try:
+            pivot = pd.pivot_table(
+                df,
+                values=metric,
+                index=row_attrs,
+                columns=col_attrs,
+                aggfunc='sum',
+                fill_value=0
+            )
+            # Flatten column names if multi-level
+            if isinstance(pivot.columns, pd.MultiIndex):
+                pivot.columns = [f"{'_'.join(map(str, col))}" for col in pivot.columns.values]
+            else:
+                # If single column, add metric name
+                if len(available_metrics) > 1:
+                    pivot.columns = [f"{col}_{metric}" for col in pivot.columns]
+            
+            pivot_tables.append(pivot)
+        except Exception as e:
+            st.error(f"Error creating pivot table for {metric}: {e}")
+            continue
     
     # Combine pivot tables (if multiple metrics)
-    if len(pivot_tables) == 1:
+    if len(pivot_tables) == 0:
+        return df
+    elif len(pivot_tables) == 1:
         return pivot_tables[0]
     else:
         # For multiple metrics, concatenate side by side
@@ -400,31 +410,17 @@ def main():
             
             st.session_state.filtered_data = filtered_data
             
+            # Calculate totals from original filtered data (before pivot)
+            filtered_for_totals = apply_filters(data, filters)
+            
             # Display summary statistics
             col1, col2, col3, col4 = st.columns(4)
             
-            # Calculate totals (handle pivot table format)
-            if isinstance(filtered_data.index, pd.MultiIndex) or (isinstance(filtered_data.columns, pd.Index) and any('_' in str(col) for col in filtered_data.columns)):
-                # Pivot table - sum all numeric values
-                numeric_data = filtered_data.select_dtypes(include=[np.number])
-                total_gross_sales = numeric_data.sum().sum() if len(numeric_data.columns) > 0 else 0
-                total_receipts = total_gross_sales
-                total_bop = total_gross_sales
-                total_on_order = total_gross_sales
-            else:
-                # Regular dataframe
-                if 'Gross Sales Units' in filtered_data.columns:
-                    total_gross_sales = filtered_data['Gross Sales Units'].sum()
-                    total_receipts = filtered_data['Receipts Units'].sum()
-                    total_bop = filtered_data['BOP Units'].sum()
-                    total_on_order = filtered_data['On Order Units'].sum()
-                else:
-                    # Pivot table format - try to sum numeric columns
-                    numeric_cols = filtered_data.select_dtypes(include=[np.number])
-                    total_gross_sales = numeric_cols.sum().sum() if len(numeric_cols.columns) > 0 else 0
-                    total_receipts = total_gross_sales
-                    total_bop = total_gross_sales
-                    total_on_order = total_gross_sales
+            # Calculate totals from original data (before grouping)
+            total_gross_sales = filtered_for_totals['Gross Sales Units'].sum()
+            total_receipts = filtered_for_totals['Receipts Units'].sum()
+            total_bop = filtered_for_totals['BOP Units'].sum()
+            total_on_order = filtered_for_totals['On Order Units'].sum()
             
             with col1:
                 st.metric("Gross Sales Units", f"{total_gross_sales:,.0f}")
@@ -440,10 +436,39 @@ def main():
             # Display data table
             st.subheader("📈 Data Table")
             
-            # Display the table
+            # Prepare columns to display based on selected_attributes
             if len(filtered_data) > 0:
+                # If grouping is applied, show all columns
+                if group_by_rows or group_by_columns:
+                    display_df = filtered_data
+                else:
+                    # If no grouping, show selected attributes + metrics
+                    display_columns = []
+                    
+                    # Add selected attributes
+                    if selected_attributes:
+                        for attr in selected_attributes:
+                            if attr in filtered_data.columns:
+                                display_columns.append(attr)
+                    else:
+                        # If no attributes selected, show all attribute columns
+                        display_columns = [col for col in filtered_data.columns if col not in metrics]
+                    
+                    # Always add metrics
+                    for metric in metrics:
+                        if metric in filtered_data.columns:
+                            display_columns.append(metric)
+                    
+                    # Filter to only existing columns
+                    display_columns = [col for col in display_columns if col in filtered_data.columns]
+                    
+                    if display_columns:
+                        display_df = filtered_data[display_columns]
+                    else:
+                        display_df = filtered_data
+                
                 st.dataframe(
-                    filtered_data,
+                    display_df,
                     use_container_width=True,
                     hide_index=False,
                     height=500
