@@ -84,15 +84,20 @@ def pivot_weeks(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
     df["Week"] = df["Week"].astype(str)
 
     # Build a wide table for each metric and merge
+    # Exclude both METRICS and "Week" from index since Week is used as columns
+    index_cols = [c for c in df.columns if c not in METRICS and c != "Week"]
+    
     wide = None
     for m in metrics:
         if m not in df.columns:
             continue
-        pv = pd.pivot_table(df, values=m, index=[c for c in df.columns if c not in METRICS], columns=["Week"], aggfunc="sum", fill_value=0)
+        pv = pd.pivot_table(df, values=m, index=index_cols, columns=["Week"], aggfunc="sum", fill_value=0)
         # Flatten columns: Metric | Week
         pv.columns = [f"{m} | {w}" for w in pv.columns]
         pv = pv.reset_index()
-        wide = pv if wide is None else pd.merge(wide, pv, on=[c for c in pv.columns if c in df.columns and c not in METRICS], how="outer")
+        # Merge on the index columns (excluding Week and metrics)
+        merge_cols = [c for c in pv.columns if c in index_cols]
+        wide = pv if wide is None else pd.merge(wide, pv, on=merge_cols, how="outer")
     return wide if wide is not None else df
 
 
