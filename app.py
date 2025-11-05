@@ -441,7 +441,7 @@ def main():
                 with st.spinner("Generating data..."):
                     st.session_state.locations = valid_locations
                     st.session_state.data = generate_sample_data(valid_locations)
-                    st.session_state.filtered_data = st.session_state.data.copy()
+            st.session_state.filtered_data = st.session_state.data.copy()
                     st.session_state.data_regenerated = True
                     st.success(f"✓ Data generated successfully for {len(valid_locations)} location(s)!")
                     st.rerun()
@@ -694,23 +694,23 @@ def main():
                     sorted_columns = sorted(display_df.columns.tolist())
                     display_df = display_df[sorted_columns]
                 
-        st.dataframe(
+                st.dataframe(
                     display_df,
-            use_container_width=True,
+                    use_container_width=True,
                     hide_index=False,
                     height=500
-        )
-        
+                )
+                
                 if isinstance(filtered_data, pd.DataFrame):
-        st.caption(f"Showing {len(filtered_data):,} rows")
+                    st.caption(f"Showing {len(filtered_data):,} rows")
                 else:
                     st.caption("Pivot table view")
-    else:
-        st.warning("No data matches the current filters. Please adjust your filters.")
-    
-    # Instructions section
-    with st.expander("ℹ️ How to Use This Demo"):
-        st.markdown("""
+            else:
+                st.warning("No data matches the current filters. Please adjust your filters.")
+            
+            # Instructions section
+            with st.expander("ℹ️ How to Use This Demo"):
+                st.markdown("""
                 ### Configuration Tab:
                 1. **Locations**: Add up to 10 locations with:
                    - Location Name, Channel, Channel Group
