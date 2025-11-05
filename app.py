@@ -441,7 +441,7 @@ def main():
                 with st.spinner("Generating data..."):
                     st.session_state.locations = valid_locations
                     st.session_state.data = generate_sample_data(valid_locations)
-            st.session_state.filtered_data = st.session_state.data.copy()
+                    st.session_state.filtered_data = st.session_state.data.copy()
                     st.session_state.data_regenerated = True
                     st.success(f"✓ Data generated successfully for {len(valid_locations)} location(s)!")
                     st.rerun()
