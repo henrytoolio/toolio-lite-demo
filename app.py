@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit.components.v1 import html as st_html
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -44,7 +45,9 @@ def generate_sample_data(locations):
                             "Class": cls,
                         }
 
+                        # Multi-select location types
                         loc_types = loc.get("types", ["Selling"])
+
                         # initialize all to zero
                         r["Gross Sales Units"] = 0
                         r["Receipts Units"] = 0
@@ -53,11 +56,14 @@ def generate_sample_data(locations):
 
                         if "Selling" in loc_types:
                             r["Gross Sales Units"] = np.random.randint(50, 500)
+
                         if "Source" in loc_types:
                             r["Receipts Units"] = np.random.randint(30, 400)
                             r["BOP Units"] = np.random.randint(100, 1000)
                             r["On Order Units"] = np.random.randint(0, 300)
+
                         if "Inventory" in loc_types:
+                            # Inventory contributes BOP; if Source also selected, BOP will be overwritten anyway by another rand
                             r["BOP Units"] = np.random.randint(100, 1000)
 
                         rows.append(r)
@@ -94,97 +100,113 @@ def melt_pivot_weeks(df):
 def html_escape(s):
     return ("" if s is None else str(s)).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-# ---------- Styling ----------
-st.markdown("""
-<style>
-.toolio-wrap { width:100%; overflow-x:auto; }
-.toolio-table { border-collapse:collapse; width:100%; table-layout:fixed; border:1px solid #e0e0e0; font-size:0.95rem; }
-.toolio-table th, .toolio-table td { border:1px solid #e0e0e0; padding:6px 10px; vertical-align:middle; }
-.toolio-table th { background:#fafafa; font-weight:700; text-align:left; white-space:nowrap; }
-.toolio-num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.toolio-metric { background:#f9f9f9; font-weight:700; }
-.toolio-arrow { cursor:pointer; color:#333; font-weight:bold; margin-right:4px; }
-.toolio-arrow:hover { color:#000; }
-.hidden-row { display:none; }
-</style>
-""", unsafe_allow_html=True)
+# ---------- Grid (rendered via components.html so JS works) ----------
+def build_grid_html(df_wide, group_cols, week_cols) -> str:
+    def render_header():
+        cols = ["Metric"] + group_cols + [f"Week {w}" for w in week_cols]
+        return "<thead><tr>" + "".join(f"<th>{html_escape(c)}</th>" for c in cols) + "</tr></thead>"
 
-# ---------- Render Functions ----------
-def render_header(group_cols, week_cols):
-    cols = ["Metric"] + group_cols + [f"Week {w}" for w in week_cols]
-    return "<thead><tr>" + "".join(f"<th>{html_escape(c)}</th>" for c in cols) + "</tr></thead>"
+    def week_sums(df):
+        return [int(df[w].sum()) if w in df.columns else 0 for w in week_cols]
 
-def week_sums(df, week_cols):
-    return [int(df[w].sum()) if w in df.columns else 0 for w in week_cols]
+    def render_children(df_metric, path, level, rows):
+        if level >= len(group_cols):
+            return
+        col = group_cols[level]
+        for val, g in df_metric.groupby(col, dropna=False, sort=False):
+            lbl = "(blank)" if val in [None, ""] else str(val)
+            node_key = key_str(path + [val])
+            nums = week_sums(g)
 
-def render_children(df_metric, group_cols, week_cols, path, level, rows):
-    if level >= len(group_cols):
-        return
-    col = group_cols[level]
-    for val, g in df_metric.groupby(col, dropna=False, sort=False):
-        lbl = "(blank)" if val in [None, ""] else str(val)
-        node_key = key_str(path + [val])
-        nums = week_sums(g, week_cols)
-        tds = ["<td></td>"]
-        for i, _ in enumerate(group_cols):
-            if i == level:
-                indent = "&nbsp;" * (level * 4)
-                arrow_html = f"<span class='toolio-arrow' data-key='{node_key}' data-level='{level}'>▶</span>"
-                tds.append(f"<td>{indent}{arrow_html}{lbl}</td>")
-            else:
-                tds.append("<td></td>")
-        tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
-        row_html = f"<tr class='child-row hidden-row' data-key='{node_key}' data-parent='{key_str(path)}'>{''.join(tds)}</tr>"
-        rows.append(row_html)
-        render_children(g, group_cols, week_cols, path + [val], level + 1, rows)
+            tds = ["<td></td>"]
+            for i, _ in enumerate(group_cols):
+                if i == level:
+                    indent = "&nbsp;" * (level * 4)
+                    arrow_html = f"<span class='toolio-arrow' data-key='{node_key}' data-level='{level}'>▶</span>"
+                    tds.append(f"<td>{indent}{arrow_html}{html_escape(lbl)}</td>")
+                else:
+                    tds.append("<td></td>")
+            tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
+            row_html = f"<tr class='child-row hidden-row' data-key='{node_key}' data-parent='{key_str(path)}'>{''.join(tds)}</tr>"
+            rows.append(row_html)
+            # Recurse
+            render_children(g, path + [val], level + 1, rows)
 
-def render_grid(df_wide, group_cols, week_cols):
     rows = []
+    # Build per-metric top rows (start collapsed)
     for metric, df_m in df_wide.groupby("Metric"):
         metric_key = key_str([metric])
-        nums = week_sums(df_m, week_cols)
+        nums = week_sums(df_m)
         arrow_html = f"<span class='toolio-arrow' data-key='{metric_key}' data-level='-1'>▶</span>"
         tds = [f"<td class='toolio-metric'>{arrow_html}{html_escape(metric)}</td>"]
         tds += ["<td class='toolio-metric'></td>" for _ in group_cols]
         tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in nums]
         rows.append(f"<tr data-key='{metric_key}' class='metric-row'>{''.join(tds)}</tr>")
-        render_children(df_m, group_cols, week_cols, [metric], 0, rows)
+        # Children rows
+        render_children(df_m, [metric], 0, rows)
+
+    # CSS + JS inside the component (runs normally)
+    css = """
+    <style>
+      .toolio-wrap { width:100%; overflow-x:auto; }
+      .toolio-table { border-collapse:collapse; width:100%; table-layout:fixed; border:1px solid #e0e0e0; font-size:0.95rem; }
+      .toolio-table th, .toolio-table td { border:1px solid #e0e0e0; padding:6px 10px; vertical-align:middle; }
+      .toolio-table th { background:#fafafa; font-weight:700; text-align:left; white-space:nowrap; }
+      .toolio-num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .toolio-metric { background:#f9f9f9; font-weight:700; }
+      .toolio-arrow { cursor:pointer; color:#333; font-weight:bold; margin-right:4px; }
+      .toolio-arrow:hover { color:#000; }
+      .hidden-row { display:none; }
+      body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial; }
+    </style>
+    """
+
+    js = """
+    <script>
+      // Attach after DOM ready
+      window.addEventListener('DOMContentLoaded', function() {
+        function toggle(key, makeExpand) {
+          const btns = document.querySelectorAll('.toolio-arrow[data-key="' + key + '"]');
+          btns.forEach(b => b.textContent = makeExpand ? '▼' : '▶');
+          const rows = document.querySelectorAll('[data-parent="' + key + '"]');
+          rows.forEach(r => {
+            if (makeExpand) {
+              r.classList.remove('hidden-row');
+            } else {
+              // Collapse subtree recursively
+              r.classList.add('hidden-row');
+              const childKey = r.getAttribute('data-key');
+              if (childKey) {
+                toggle(childKey, false);
+              }
+            }
+          });
+        }
+
+        document.querySelectorAll('.toolio-arrow').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const key = btn.dataset.key;
+            const expanded = btn.textContent === '▼';
+            toggle(key, !expanded);
+          });
+        });
+      });
+    </script>
+    """
 
     html = f"""
+    {css}
     <div class='toolio-wrap'>
       <table class='toolio-table'>
-        {render_header(group_cols, week_cols)}
+        {render_header()}
         <tbody>
           {''.join(rows)}
         </tbody>
       </table>
     </div>
-
-    <script>
-    window.addEventListener("load", function() {{
-      setTimeout(() => {{
-        const arrows = parent.document.querySelectorAll('.toolio-arrow');
-        arrows.forEach(btn => {{
-          btn.addEventListener('click', () => {{
-            const key = btn.dataset.key;
-            const expanded = btn.textContent === '▼';
-            btn.textContent = expanded ? '▶' : '▼';
-            const rows = parent.document.querySelectorAll(`[data-parent='${{key}}']`);
-            rows.forEach(r => {{
-              if (expanded) {{
-                r.classList.add('hidden-row');
-                r.querySelectorAll('.toolio-arrow').forEach(a => a.textContent = '▶');
-              }} else {{
-                r.classList.remove('hidden-row');
-              }}
-            }});
-          }});
-        }});
-      }}, 300);
-    }});
-    </script>
+    {js}
     """
-    st.markdown(html, unsafe_allow_html=True)
+    return html
 
 # ---------- Main App ----------
 def main():
@@ -247,7 +269,11 @@ def main():
 
         with st.sidebar:
             st.header("⚙️ Controls")
-            group_cols = st.multiselect("Group by (rows)", options=[c for c in attrs if c != "Week"], default=["Channel", "Channel Group", "Selling Channel"])
+            group_cols = st.multiselect(
+                "Group by (rows)",
+                options=[c for c in attrs if c != "Week"],
+                default=["Channel", "Channel Group", "Selling Channel"]
+            )
             st.session_state.group_by_rows = group_cols
 
             st.subheader("Filters")
@@ -262,7 +288,11 @@ def main():
         df_f = apply_filters(df, st.session_state.filters)
         df_wide = melt_pivot_weeks(df_f)
         week_cols = [c for c in df_wide.columns if c not in [*attrs, "Metric"]]
-        render_grid(df_wide, st.session_state.group_by_rows, week_cols)
+
+        # Render grid via components.html so the JS runs
+        grid_html = build_grid_html(df_wide, st.session_state.group_by_rows, week_cols)
+        # Height heuristic: 120px header + ~28px per row (collapsed shows only metrics)
+        st_html(grid_html, height=600, scrolling=True)
 
 if __name__ == "__main__":
     main()
