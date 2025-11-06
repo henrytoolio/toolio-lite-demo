@@ -3,24 +3,22 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Page setup
+# ---------- Page setup ----------
 st.set_page_config(page_title="Toolio Lite - Merchandise Plan Demo", page_icon="📊", layout="wide")
 
-# Session state defaults
+# Initialize session state
 for k, v in [
     ("data", None),
-    ("filtered_data", None),
     ("group_by_rows", []),
     ("filters", {}),
     ("locations", []),
-    ("expanded_groups", set()),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units"]
 
-# ---------------- Sample Data ----------------
+# ---------- Data Generation ----------
 def generate_sample_data(locations):
     np.random.seed(42)
     start = datetime.now().replace(day=1)
@@ -44,30 +42,14 @@ def generate_sample_data(locations):
                             "Department": dep,
                             "Class": cls,
                         }
-                        if loc.get("source_location"):
-                            r["BOP Units"] = np.random.randint(100, 1000)
-                            r["Receipts Units"] = np.random.randint(30, 400)
-                            r["On Order Units"] = np.random.randint(0, 300)
-                            r["Gross Sales Units"] = 0
-                        elif loc.get("inventory_location"):
-                            r["BOP Units"] = np.random.randint(100, 1000)
-                            r["Gross Sales Units"] = np.random.randint(50, 500)
-                            r["Receipts Units"] = 0
-                            r["On Order Units"] = 0
-                        elif loc.get("selling_location"):
-                            r["Gross Sales Units"] = np.random.randint(50, 500)
-                            r["BOP Units"] = 0
-                            r["Receipts Units"] = 0
-                            r["On Order Units"] = 0
-                        else:
-                            r["Gross Sales Units"] = np.random.randint(50, 500)
-                            r["Receipts Units"] = np.random.randint(30, 400)
-                            r["BOP Units"] = np.random.randint(100, 1000)
-                            r["On Order Units"] = np.random.randint(0, 300)
+                        r["Gross Sales Units"] = np.random.randint(50, 500)
+                        r["Receipts Units"] = np.random.randint(30, 400)
+                        r["BOP Units"] = np.random.randint(100, 1000)
+                        r["On Order Units"] = np.random.randint(0, 300)
                         rows.append(r)
     return pd.DataFrame(rows)
 
-
+# ---------- Helpers ----------
 def apply_filters(df, filters):
     out = df.copy()
     for c, vals in filters.items():
@@ -75,10 +57,8 @@ def apply_filters(df, filters):
             out = out[out[c].isin(vals)]
     return out
 
-
 def key_str(parts):
     return "|".join(map(str, parts)) if isinstance(parts, (list, tuple)) else str(parts)
-
 
 def melt_pivot_weeks(df):
     m = df.melt(
@@ -97,12 +77,10 @@ def melt_pivot_weeks(df):
     ).reset_index()
     return w
 
-
 def html_escape(s):
     return ("" if s is None else str(s)).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-
-# ---------------- CSS ----------------
+# ---------- Styling ----------
 st.markdown("""
 <style>
 .toolio-wrap { width:100%; overflow-x:auto; }
@@ -111,21 +89,19 @@ st.markdown("""
 .toolio-table th { background:#fafafa; font-weight:700; text-align:left; white-space:nowrap; }
 .toolio-num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .toolio-metric { background:#f9f9f9; font-weight:700; }
-.toolio-arrow { cursor:pointer; color:#333; font-weight:bold; text-decoration:none; }
+.toolio-arrow { cursor:pointer; color:#333; font-weight:bold; margin-right:4px; }
 .toolio-arrow:hover { color:#000; }
+.hidden-row { display:none; }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ---------------- Table Rendering ----------------
+# ---------- Render Functions ----------
 def render_header(group_cols, week_cols):
     cols = ["Metric"] + group_cols + [f"Week {w}" for w in week_cols]
     return "<thead><tr>" + "".join(f"<th>{html_escape(c)}</th>" for c in cols) + "</tr></thead>"
 
-
 def week_sums(df, week_cols):
     return [int(df[w].sum()) if w in df.columns else 0 for w in week_cols]
-
 
 def tr_metric(metric, df_metric, group_cols, week_cols):
     nums = week_sums(df_metric, week_cols)
@@ -134,65 +110,72 @@ def tr_metric(metric, df_metric, group_cols, week_cols):
     tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in nums]
     return "<tr>" + "".join(tds) + "</tr>"
 
-
 def render_children(df_metric, group_cols, week_cols, path, level, rows):
     if level >= len(group_cols):
         return
     col = group_cols[level]
     for val, g in df_metric.groupby(col, dropna=False, sort=False):
         lbl = "(blank)" if val in [None, ""] else str(val)
-        node_k = key_str(path + [val])
-        expanded = node_k in st.session_state.expanded_groups
-        arrow = "▼" if expanded else "▶"
-
+        node_key = key_str(path + [val])
         nums = week_sums(g, week_cols)
+
         tds = ["<td></td>"]
         for i, _ in enumerate(group_cols):
             if i == level:
                 indent = "&nbsp;" * (level * 4)
-                form_html = f"""
-                <form action="?toggle={node_k}" method="get" style="display:inline;">
-                    <button name="toggle" value="{node_k}" class="toolio-arrow" type="submit" style="background:none;border:none;">{arrow}</button>
-                    {indent}{lbl}
-                </form>
-                """
-                tds.append(f"<td>{form_html}</td>")
+                arrow_html = f"<span class='toolio-arrow' data-key='{node_key}' data-level='{level}'>▶</span>"
+                tds.append(f"<td>{indent}{arrow_html}{lbl}</td>")
             else:
                 tds.append("<td></td>")
         tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
-        rows.append("<tr>" + "".join(tds) + "</tr>")
-        if expanded:
-            render_children(g, group_cols, week_cols, path + [val], level + 1, rows)
 
+        row_html = f"<tr data-key='{node_key}' data-parent='{key_str(path)}'>{''.join(tds)}</tr>"
+        rows.append(row_html)
+        render_children(g, group_cols, week_cols, path + [val], level + 1, rows)
 
 def render_grid(df_wide, group_cols, week_cols):
     rows = []
     for metric, df_m in df_wide.groupby("Metric"):
         rows.append(tr_metric(metric, df_m, group_cols, week_cols))
         render_children(df_m, group_cols, week_cols, [metric], 0, rows)
-    html = f"<div class='toolio-wrap'><table class='toolio-table'>{render_header(group_cols, week_cols)}<tbody>{''.join(rows)}</tbody></table></div>"
+
+    html = f"""
+    <div class='toolio-wrap'>
+      <table class='toolio-table'>
+        {render_header(group_cols, week_cols)}
+        <tbody>
+          {''.join(rows)}
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+    document.querySelectorAll('.toolio-arrow').forEach(btn => {{
+        btn.addEventListener('click', () => {{
+            const key = btn.dataset.key;
+            const expanded = btn.textContent === '▼';
+            btn.textContent = expanded ? '▶' : '▼';
+            document.querySelectorAll(`[data-parent='${{key}}']`).forEach(r => {{
+                if (expanded) {{
+                    r.style.display = 'none';
+                    // recursively collapse all children
+                    r.querySelectorAll('.toolio-arrow').forEach(a => a.textContent = '▶');
+                }} else {{
+                    r.style.display = '';
+                }}
+            }});
+        }});
+    }});
+    </script>
+    """
     st.markdown(html, unsafe_allow_html=True)
 
-
-# ---------------- Handle Toggle ----------------
-params = st.experimental_get_query_params()
-if "toggle" in params:
-    key = params["toggle"][0]
-    if key in st.session_state.expanded_groups:
-        st.session_state.expanded_groups.remove(key)
-    else:
-        st.session_state.expanded_groups.add(key)
-    st.experimental_set_query_params()  # clear
-    st.rerun()
-
-
-# ---------------- Main App ----------------
+# ---------- Main App ----------
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
-    st.caption("Metrics fixed in first column • Inline expand/collapse • Weeks in columns")
+    st.caption("Metrics fixed in first column • Instant client-side expand/collapse • Weeks in columns")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
-
     with config_tab:
         st.header("Location Configuration")
         with st.expander("📍 Configure Locations", expanded=False):
@@ -252,17 +235,13 @@ def main():
                     filt[a] = sel
             st.session_state.filters = filt
 
-            if st.button("Collapse All"):
-                st.session_state.expanded_groups.clear()
-                st.rerun()
-
         df_f = apply_filters(df, st.session_state.filters)
         df_wide = melt_pivot_weeks(df_f)
         week_cols = [c for c in df_wide.columns if c not in [*attrs, "Metric"]]
         render_grid(df_wide, st.session_state.group_by_rows, week_cols)
 
-
 if __name__ == "__main__":
     main()
+
 
 
