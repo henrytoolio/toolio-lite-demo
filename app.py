@@ -13,14 +13,14 @@ for k, v in [
     ("group_by_rows", []),
     ("filters", {}),
     ("locations", []),
-    ("expanded_groups", set()),   # keys of expanded nodes
+    ("expanded_groups", set()),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units"]
 
-# ---------------- Data gen ----------------
+# ---------------- Data generation ----------------
 def generate_sample_data(locations):
     np.random.seed(42)
     start = datetime.now().replace(day=1)
@@ -109,12 +109,12 @@ st.markdown("""
 .toolio-table th { background:#fafafa; font-weight:700; text-align:left; white-space:nowrap; }
 .toolio-num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .toolio-metric { background:#f9f9f9; font-weight:700; }
-.toolio-arrow { display:inline-block; padding:0 6px; margin-right:6px; border:1px solid #e0e0e0; border-radius:4px; text-decoration:none; color:inherit; }
+.toolio-arrow { cursor:pointer; padding:0 6px; margin-right:6px; border:1px solid #ccc; border-radius:4px; background:#fff; }
 .toolio-arrow:hover { background:#f0f6ff; }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- HTML table renderer (single <table>) ----------------
+# ---------------- Table rendering ----------------
 def render_header(group_cols, week_cols):
     cols = ["Metric"] + group_cols + [f"Week {w}" for w in week_cols]
     return "<thead><tr>" + "".join(f"<th>{html_escape(c)}</th>" for c in cols) + "</tr></thead>"
@@ -129,25 +129,19 @@ def tr_metric(metric, df_metric, group_cols, week_cols):
     tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in nums]
     return "<tr>" + "".join(tds) + "</tr>"
 
-def tr_group(level, group_cols, level_idx, label, node_key, expanded, df_group, week_cols):
-    nums = week_sums(df_group, week_cols)
-    tds = ["<td></td>"]  # metric column blank on group rows
+def render_grid(df_wide, group_cols, week_cols):
+    st.markdown("<div class='toolio-wrap'><table class='toolio-table'>", unsafe_allow_html=True)
+    st.markdown(render_header(group_cols, week_cols), unsafe_allow_html=True)
+    st.markdown("<tbody>", unsafe_allow_html=True)
 
-    for idx, _ in enumerate(group_cols):
-        if idx == level_idx:
-            indent = 16 * level
-            arrow = "▼" if expanded else "▶"
-            # arrow as link with query param; state persists so locations won't reset
-            cell = (f"<a class='toolio-arrow' href='?toggle={node_key}' style='margin-left:{indent}px'>{arrow}</a>"
-                    f"{html_escape(label)}")
-            tds.append(f"<td>{cell}</td>")
-        else:
-            tds.append("<td></td>")
+    for metric, df_m in df_wide.groupby("Metric"):
+        st.markdown(tr_metric(metric, df_m, group_cols, week_cols), unsafe_allow_html=True)
+        if group_cols:
+            render_children(df_m, group_cols, week_cols, [metric], 0)
 
-    tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
-    return "<tr>" + "".join(tds) + "</tr>"
+    st.markdown("</tbody></table></div>", unsafe_allow_html=True)
 
-def render_children(df_metric, group_cols, week_cols, path, level, out_rows):
+def render_children(df_metric, group_cols, week_cols, path, level):
     if level >= len(group_cols):
         return
     col = group_cols[level]
@@ -155,44 +149,40 @@ def render_children(df_metric, group_cols, week_cols, path, level, out_rows):
         lbl = "(blank)" if val in [None, ""] else str(val)
         node_k = key_str(path + [val])
         expanded = node_k in st.session_state.expanded_groups
-        out_rows.append(tr_group(level, group_cols, level, lbl, node_k, expanded, g, week_cols))
-        if expanded and level + 1 < len(group_cols):
-            render_children(g, group_cols, week_cols, path + [val], level + 1, out_rows)
+        arrow = "▼" if expanded else "▶"
 
-def render_grid(df_wide, group_cols, week_cols):
-    parts = ["<div class='toolio-wrap'><table class='toolio-table'>",
-             render_header(group_cols, week_cols),
-             "<tbody>"]
-    for metric, df_m in df_wide.groupby("Metric"):
-        parts.append(tr_metric(metric, df_m, group_cols, week_cols))
-        if group_cols:
-            render_children(df_m, group_cols, week_cols, [metric], 0, parts)
-    parts.append("</tbody></table></div>")
-    st.markdown("".join(parts), unsafe_allow_html=True)
+        nums = week_sums(g, week_cols)
+        tds = ["<td></td>"]  # blank metric cell
+        for i, _ in enumerate(group_cols):
+            if i == level:
+                indent = "&nbsp;" * (level * 4)
+                btn_key = f"btn_{node_k}"
+                clicked = st.button(arrow, key=btn_key)
+                if clicked:
+                    if expanded:
+                        st.session_state.expanded_groups.remove(node_k)
+                    else:
+                        st.session_state.expanded_groups.add(node_k)
+                    st.rerun()
+                cell_html = f"{indent}{lbl}"
+                tds.append(f"<td>{cell_html}</td>")
+            else:
+                tds.append("<td></td>")
+        tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
+        st.markdown("<tr>" + "".join(tds) + "</tr>", unsafe_allow_html=True)
+        if expanded:
+            render_children(g, group_cols, week_cols, path + [val], level + 1)
 
-# ---------------- Main ----------------
+# ---------------- Main app ----------------
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
-    st.caption("Metrics fixed in first column • Click ▶ next to a value to drill down • Weeks are columns")
-
-    # Handle arrow clicks (via query param) WITHOUT clearing locations/state
-    params = st.experimental_get_query_params()
-    if "toggle" in params:
-        k = params["toggle"][0]
-        if k in st.session_state.expanded_groups:
-            st.session_state.expanded_groups.remove(k)
-        else:
-            st.session_state.expanded_groups.add(k)
-        st.experimental_set_query_params()  # clear param
-        st.rerun()
+    st.caption("Metrics fixed in first column • Click ▶ next to a group to expand • Weeks as columns")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
 
     with config_tab:
         st.header("Location Configuration")
-
         with st.expander("📍 Configure Locations (collapsed by default)", expanded=False):
-            # Only initialize defaults if empty
             if not st.session_state.locations:
                 st.session_state.locations = [{} for _ in range(3)]
 
@@ -264,13 +254,15 @@ def main():
                 if sel: filt[a] = sel
             st.session_state.filters = filt
 
-            st.button("Collapse All", on_click=st.session_state.expanded_groups.clear)
+            if st.button("Collapse All"):
+                st.session_state.expanded_groups.clear()
+                st.rerun()
 
         df_f = apply_filters(df, st.session_state.filters)
         df_wide = melt_pivot_weeks(df_f)
         week_cols = [c for c in df_wide.columns if c not in [*attrs, "Metric"]]
 
-        st.subheader("Toolio-style Grid (click ▶ next to the value you want to expand)")
+        st.subheader("Toolio-style Grid (click ▶ next to a value to expand)")
         render_grid(df_wide, st.session_state.group_by_rows, week_cols)
 
 if __name__ == "__main__":
