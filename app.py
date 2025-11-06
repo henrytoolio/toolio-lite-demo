@@ -149,7 +149,13 @@ def render_children(df_metric, group_cols, week_cols, path, level, rows):
 def render_grid(df_wide, group_cols, week_cols):
     rows = []
     for metric, df_m in df_wide.groupby("Metric"):
-        rows.append(tr_metric(metric, df_m, group_cols, week_cols))
+        metric_key = key_str([metric])
+        nums = week_sums(df_m, week_cols)
+        arrow_html = f"<span class='toolio-arrow' data-key='{metric_key}' data-level='-1'>▶</span>"
+        tds = [f"<td class='toolio-metric'>{arrow_html}{html_escape(metric)}</td>"]
+        tds += ["<td class='toolio-metric'></td>" for _ in group_cols]
+        tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in nums]
+        rows.append(f"<tr data-key='{metric_key}' class='metric-row'>{''.join(tds)}</tr>")
         render_children(df_m, group_cols, week_cols, [metric], 0, rows)
 
     html = f"""
@@ -182,6 +188,7 @@ def render_grid(df_wide, group_cols, week_cols):
     </script>
     """
     st.markdown(html, unsafe_allow_html=True)
+
 
 # ---------- Main App ----------
 def main():
