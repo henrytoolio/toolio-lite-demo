@@ -211,7 +211,7 @@ def build_grid_html(df_wide, group_cols, week_cols) -> str:
 # ---------- Main App ----------
 def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
-    st.caption("Utilize this demo to show how locations would looks like in Toolio. This is bets used to show On Order and Receipt considerations and how to organize virtual warehouses.")
+    st.caption("Utilize this demo to show how locations would looks like in Toolio. This is best used to show On Order and Receipt considerations and how to organize virtual warehouses.")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
 
