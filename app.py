@@ -42,10 +42,24 @@ def generate_sample_data(locations):
                             "Department": dep,
                             "Class": cls,
                         }
-                        r["Gross Sales Units"] = np.random.randint(50, 500)
-                        r["Receipts Units"] = np.random.randint(30, 400)
-                        r["BOP Units"] = np.random.randint(100, 1000)
-                        r["On Order Units"] = np.random.randint(0, 300)
+
+                        loc_type = loc.get("type", "Selling")
+                        if loc_type == "Selling":
+                            r["Gross Sales Units"] = np.random.randint(50, 500)
+                            r["Receipts Units"] = 0
+                            r["BOP Units"] = 0
+                            r["On Order Units"] = 0
+                        elif loc_type == "Source":
+                            r["Gross Sales Units"] = 0
+                            r["Receipts Units"] = np.random.randint(30, 400)
+                            r["BOP Units"] = np.random.randint(100, 1000)
+                            r["On Order Units"] = np.random.randint(0, 300)
+                        elif loc_type == "Inventory":
+                            r["Gross Sales Units"] = 0
+                            r["Receipts Units"] = 0
+                            r["BOP Units"] = np.random.randint(100, 1000)
+                            r["On Order Units"] = 0
+
                         rows.append(r)
     return pd.DataFrame(rows)
 
@@ -118,7 +132,6 @@ def render_children(df_metric, group_cols, week_cols, path, level, rows):
         lbl = "(blank)" if val in [None, ""] else str(val)
         node_key = key_str(path + [val])
         nums = week_sums(g, week_cols)
-
         tds = ["<td></td>"]
         for i, _ in enumerate(group_cols):
             if i == level:
@@ -128,8 +141,7 @@ def render_children(df_metric, group_cols, week_cols, path, level, rows):
             else:
                 tds.append("<td></td>")
         tds += [f"<td class='toolio-num'>{v:,}</td>" for v in nums]
-
-        row_html = f"<tr data-key='{node_key}' data-parent='{key_str(path)}'>{''.join(tds)}</tr>"
+        row_html = f"<tr class='child-row hidden-row' data-key='{node_key}' data-parent='{key_str(path)}'>{''.join(tds)}</tr>"
         rows.append(row_html)
         render_children(g, group_cols, week_cols, path + [val], level + 1, rows)
 
@@ -155,13 +167,13 @@ def render_grid(df_wide, group_cols, week_cols):
             const key = btn.dataset.key;
             const expanded = btn.textContent === '▼';
             btn.textContent = expanded ? '▶' : '▼';
-            document.querySelectorAll(`[data-parent='${{key}}']`).forEach(r => {{
+            const rows = document.querySelectorAll(`[data-parent='${{key}}']`);
+            rows.forEach(r => {{
                 if (expanded) {{
-                    r.style.display = 'none';
-                    // recursively collapse all children
+                    r.classList.add('hidden-row');
                     r.querySelectorAll('.toolio-arrow').forEach(a => a.textContent = '▶');
                 }} else {{
-                    r.style.display = '';
+                    r.classList.remove('hidden-row');
                 }}
             }});
         }});
@@ -176,6 +188,7 @@ def main():
     st.caption("Metrics fixed in first column • Instant client-side expand/collapse • Weeks in columns")
 
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
+
     with config_tab:
         st.header("Location Configuration")
         with st.expander("📍 Configure Locations", expanded=False):
@@ -202,6 +215,14 @@ def main():
                     with c:
                         loc["channel_group"] = st.text_input("Channel Group", value=loc.get("channel_group", ""), key=f"loc_channel_group_{i}")
                     loc["selling_channel"] = st.text_input("Selling Channel", value=loc.get("selling_channel", ""), key=f"loc_sell_{i}")
+
+                    loc["type"] = st.radio(
+                        "Location Type",
+                        options=["Selling", "Source", "Inventory"],
+                        index=["Selling", "Source", "Inventory"].index(loc.get("type", "Selling")),
+                        horizontal=True,
+                        key=f"loc_type_{i}"
+                    )
 
         st.divider()
         if st.button("🔄 Generate Data", type="primary", use_container_width=True):
@@ -242,6 +263,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
