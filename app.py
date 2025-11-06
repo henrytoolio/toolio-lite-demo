@@ -131,84 +131,56 @@ GRID_CSS = """
   font-weight: 700;
 }
 .toolio-indent { display: inline-block; }
-.toolio-arrow {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-weight: 600;
-  margin-right: 6px;
-}
-.toolio-arrow:hover { color: #0073e6; }
 </style>
 """
 st.markdown(GRID_CSS, unsafe_allow_html=True)
 
 # ===================================================
-# Hierarchical Grid Renderer
+# Grid Renderer (with inline Streamlit toggles)
 # ===================================================
-def render_table_header(group_attrs, week_cols):
-    headers = ["Metric"] + group_attrs + [f"Week {w}" for w in week_cols]
-    return "<thead><tr>" + "".join([f"<th>{h}</th>" for h in headers]) + "</tr></thead>"
+def render_table(df_wide, group_attrs, week_cols):
+    st.markdown("<table class='toolio-table'><thead><tr>" +
+                "".join([f"<th>{h}</th>" for h in ["Metric"] + group_attrs + [f"Week {w}" for w in week_cols]]) +
+                "</tr></thead><tbody>", unsafe_allow_html=True)
 
-def sum_week_values(df, week_cols):
-    return [int(df[w].sum()) if w in df.columns else 0 for w in week_cols]
-
-def html_escape(s):
-    return ("" if s is None else str(s)).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-def render_group_row(level, group_attrs, level_idx, current_label, is_expanded, key_str, df_group, week_cols):
-    num_vals = sum_week_values(df_group, week_cols)
-    tds = ["<td></td>"]
-    for idx, colname in enumerate(group_attrs):
-        if idx == level_idx:
-            indent_px = 16 * level
-            arrow = "▼" if is_expanded else "▶"
-            btn_html = f"""
-            <form action="?toggle={key_str}" method="get" style="display:inline;">
-              <button name="toggle" value="{key_str}" class="toolio-arrow" type="submit"
-                      style="margin-left:{indent_px}px;">{arrow}</button>
-              {html_escape(current_label)}
-            </form>
-            """
-            tds.append(f"<td>{btn_html}</td>")
-        else:
-            tds.append("<td></td>")
-    for v in num_vals:
-        tds.append(f"<td class='toolio-num'>{v:,}</td>")
-    return "<tr>" + "".join(tds) + "</tr>"
-
-def render_metric_row(metric_name, df_metric, group_attrs, week_cols):
-    num_vals = sum_week_values(df_metric, week_cols)
-    tds = [f"<td class='toolio-metric'>{html_escape(metric_name)}</td>"]
-    tds += ["<td class='toolio-metric'></td>" for _ in group_attrs]
-    tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in num_vals]
-    return "<tr class='toolio-metric'>" + "".join(tds) + "</tr>"
-
-def render_hierarchy_html(df_metric, group_attrs, week_cols, path_values, level, rows_html):
-    if not group_attrs or level >= len(group_attrs):
-        return
-    attr = group_attrs[level]
-    for val, gdf in df_metric.groupby(attr, dropna=False, sort=False):
-        node_values = tuple(path_values + [val])
-        key_str = key_tuple_to_str(node_values)
-        is_expanded = key_str in st.session_state.expanded_groups
-        label = "(blank)" if val in [None, ""] else str(val)
-        rows_html.append(render_group_row(level, group_attrs, level, label, is_expanded, key_str, gdf, week_cols))
-        if is_expanded and level + 1 < len(group_attrs):
-            render_hierarchy_html(gdf, group_attrs, week_cols, path_values + [val], level + 1, rows_html)
-
-def render_metric_section_html(metric, df_metric, group_attrs, week_cols):
-    rows_html = [render_metric_row(metric, df_metric, group_attrs, week_cols)]
-    if group_attrs:
-        render_hierarchy_html(df_metric, group_attrs, week_cols, [metric], 0, rows_html)
-    return "\n".join(rows_html)
-
-def render_grid(df_wide, group_attrs, week_cols):
-    html_parts = ["<table class='toolio-table'>", render_table_header(group_attrs, week_cols), "<tbody>"]
     for metric, gdf in df_wide.groupby("Metric"):
-        html_parts.append(render_metric_section_html(metric, gdf, group_attrs, week_cols))
-    html_parts.append("</tbody></table>")
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
+        # Metric header
+        totals = [int(gdf[w].sum()) for w in week_cols]
+        metric_row = "<tr><td class='toolio-metric'>{}</td>{}<td class='toolio-metric toolio-num'>{}</td></tr>".format(
+            metric,
+            "".join(["<td class='toolio-metric'></td>" for _ in group_attrs]),
+            "</td><td class='toolio-metric toolio-num'>".join([f"{v:,}" for v in totals])
+        )
+        st.markdown(metric_row, unsafe_allow_html=True)
+
+        def recurse(df, level, path):
+            if level >= len(group_attrs): return
+            attr = group_attrs[level]
+            for val, gsub in df.groupby(attr, dropna=False, sort=False):
+                node_key = key_tuple_to_str(path + [val])
+                is_expanded = node_key in st.session_state.expanded_groups
+                label = "(blank)" if val in [None, ""] else str(val)
+                totals = [int(gsub[w].sum()) for w in week_cols]
+                indent = "&nbsp;" * (level * 4)
+                cols = st.columns([0.05, 0.95])
+                with cols[0]:
+                    if st.button(("▼" if is_expanded else "▶") + " ", key=node_key):
+                        if is_expanded:
+                            st.session_state.expanded_groups.discard(node_key)
+                        else:
+                            st.session_state.expanded_groups.add(node_key)
+                        st.rerun()
+                with cols[1]:
+                    st.markdown(f"{indent}**{label}**", unsafe_allow_html=True)
+                row_html = "".join([f"<td class='toolio-num'>{v:,}</td>" for v in totals])
+                st.markdown("<table class='toolio-table'><tr><td></td>" +
+                            "".join(["<td></td>" for _ in group_attrs]) +
+                            row_html + "</tr></table>", unsafe_allow_html=True)
+                if is_expanded:
+                    recurse(gsub, level + 1, path + [val])
+        recurse(gdf, 0, [metric])
+
+    st.markdown("</tbody></table>", unsafe_allow_html=True)
 
 # ===================================================
 # Main App
@@ -217,22 +189,23 @@ def main():
     st.title("📊 Toolio Lite - Merchandise Plan Demo")
     st.markdown("Metrics fixed • Expand groups inline • Weeks in columns (Toolio-style)")
 
-    params = st.experimental_get_query_params()
-    if "toggle" in params:
-        key_str = params["toggle"][0]
-        if key_str in st.session_state.expanded_groups:
-            st.session_state.expanded_groups.remove(key_str)
-        else:
-            st.session_state.expanded_groups.add(key_str)
-        st.experimental_set_query_params()
-        st.rerun()
-
     config_tab, view_tab = st.tabs(["⚙️ Configuration", "📊 Data View"])
     with config_tab:
         st.header("Location Configuration")
         with st.expander("📍 Configure Locations", expanded=False):
             if not st.session_state.locations:
                 st.session_state.locations = [{} for _ in range(3)]
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("➕ Add Location", disabled=len(st.session_state.locations) >= 10):
+                    st.session_state.locations.append({})
+                    st.rerun()
+            with col2:
+                if st.button("➖ Remove Last Location", disabled=len(st.session_state.locations) <= 1):
+                    st.session_state.locations.pop()
+                    st.rerun()
+
             for i, loc in enumerate(st.session_state.locations):
                 with st.expander(f"📍 Location {i+1}", expanded=False):
                     c1, c2, c3 = st.columns(3)
@@ -250,7 +223,6 @@ def main():
                         loc["inventory_location"] = st.checkbox("Inventory", value=loc.get("inventory_location", False), key=f"loc_inventory_{i}")
                     with c3:
                         loc["selling_location"] = st.checkbox("Selling", value=loc.get("selling_location", False), key=f"loc_selling_{i}")
-            st.session_state.locations = st.session_state.locations
 
         st.divider()
         if st.button("🔄 Generate Data", type="primary", use_container_width=True):
@@ -290,7 +262,7 @@ def main():
         df_wide = melt_and_pivot(df_filtered)
         week_cols = [c for c in df_wide.columns if c not in [*all_attrs, "Metric"]]
         st.subheader("📈 Toolio-style Grid (click ▶ to expand)")
-        render_grid(df_wide, st.session_state.group_by_rows, week_cols)
+        render_table(df_wide, st.session_state.group_by_rows, week_cols)
 
 if __name__ == "__main__":
     main()
