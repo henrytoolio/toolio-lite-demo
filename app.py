@@ -27,6 +27,7 @@ def generate_sample_data(locations):
     departments = ["Bottoms", "Tops"]
     classes = {"Tops": ["Long Sleeve", "Short Sleeve"], "Bottoms": ["Short Leg", "Long Leg"]}
     rows = []
+
     for w in weeks:
         for loc in locations:
             for div in divisions:
@@ -52,12 +53,10 @@ def generate_sample_data(locations):
 
                         if "Selling" in loc_types:
                             r["Gross Sales Units"] = np.random.randint(50, 500)
-
                         if "Source" in loc_types:
                             r["Receipts Units"] = np.random.randint(30, 400)
                             r["BOP Units"] = np.random.randint(100, 1000)
                             r["On Order Units"] = np.random.randint(0, 300)
-
                         if "Inventory" in loc_types:
                             r["BOP Units"] = np.random.randint(100, 1000)
 
@@ -118,13 +117,6 @@ def render_header(group_cols, week_cols):
 def week_sums(df, week_cols):
     return [int(df[w].sum()) if w in df.columns else 0 for w in week_cols]
 
-def tr_metric(metric, df_metric, group_cols, week_cols):
-    nums = week_sums(df_metric, week_cols)
-    tds = [f"<td class='toolio-metric'>{html_escape(metric)}</td>"]
-    tds += ["<td class='toolio-metric'></td>" for _ in group_cols]
-    tds += [f"<td class='toolio-metric toolio-num'>{v:,}</td>" for v in nums]
-    return "<tr>" + "".join(tds) + "</tr>"
-
 def render_children(df_metric, group_cols, week_cols, path, level, rows):
     if level >= len(group_cols):
         return
@@ -169,26 +161,30 @@ def render_grid(df_wide, group_cols, week_cols):
     </div>
 
     <script>
-    document.querySelectorAll('.toolio-arrow').forEach(btn => {{
-        btn.addEventListener('click', () => {{
+    window.addEventListener("load", function() {{
+      setTimeout(() => {{
+        const arrows = parent.document.querySelectorAll('.toolio-arrow');
+        arrows.forEach(btn => {{
+          btn.addEventListener('click', () => {{
             const key = btn.dataset.key;
             const expanded = btn.textContent === '▼';
             btn.textContent = expanded ? '▶' : '▼';
-            const rows = document.querySelectorAll(`[data-parent='${{key}}']`);
+            const rows = parent.document.querySelectorAll(`[data-parent='${{key}}']`);
             rows.forEach(r => {{
-                if (expanded) {{
-                    r.classList.add('hidden-row');
-                    r.querySelectorAll('.toolio-arrow').forEach(a => a.textContent = '▶');
-                }} else {{
-                    r.classList.remove('hidden-row');
-                }}
+              if (expanded) {{
+                r.classList.add('hidden-row');
+                r.querySelectorAll('.toolio-arrow').forEach(a => a.textContent = '▶');
+              }} else {{
+                r.classList.remove('hidden-row');
+              }}
             }});
+          }});
         }});
+      }}, 300);
     }});
     </script>
     """
     st.markdown(html, unsafe_allow_html=True)
-
 
 # ---------- Main App ----------
 def main():
@@ -270,4 +266,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
