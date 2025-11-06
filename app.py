@@ -43,22 +43,23 @@ def generate_sample_data(locations):
                             "Class": cls,
                         }
 
-                        loc_type = loc.get("type", "Selling")
-                        if loc_type == "Selling":
+                        loc_types = loc.get("types", ["Selling"])
+                        # initialize all to zero
+                        r["Gross Sales Units"] = 0
+                        r["Receipts Units"] = 0
+                        r["BOP Units"] = 0
+                        r["On Order Units"] = 0
+
+                        if "Selling" in loc_types:
                             r["Gross Sales Units"] = np.random.randint(50, 500)
-                            r["Receipts Units"] = 0
-                            r["BOP Units"] = 0
-                            r["On Order Units"] = 0
-                        elif loc_type == "Source":
-                            r["Gross Sales Units"] = 0
+
+                        if "Source" in loc_types:
                             r["Receipts Units"] = np.random.randint(30, 400)
                             r["BOP Units"] = np.random.randint(100, 1000)
                             r["On Order Units"] = np.random.randint(0, 300)
-                        elif loc_type == "Inventory":
-                            r["Gross Sales Units"] = 0
-                            r["Receipts Units"] = 0
+
+                        if "Inventory" in loc_types:
                             r["BOP Units"] = np.random.randint(100, 1000)
-                            r["On Order Units"] = 0
 
                         rows.append(r)
     return pd.DataFrame(rows)
@@ -216,12 +217,11 @@ def main():
                         loc["channel_group"] = st.text_input("Channel Group", value=loc.get("channel_group", ""), key=f"loc_channel_group_{i}")
                     loc["selling_channel"] = st.text_input("Selling Channel", value=loc.get("selling_channel", ""), key=f"loc_sell_{i}")
 
-                    loc["type"] = st.radio(
-                        "Location Type",
+                    loc["types"] = st.multiselect(
+                        "Location Type(s)",
                         options=["Selling", "Source", "Inventory"],
-                        index=["Selling", "Source", "Inventory"].index(loc.get("type", "Selling")),
-                        horizontal=True,
-                        key=f"loc_type_{i}"
+                        default=loc.get("types", ["Selling"]),
+                        key=f"loc_types_{i}",
                     )
 
         st.divider()
@@ -263,5 +263,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
