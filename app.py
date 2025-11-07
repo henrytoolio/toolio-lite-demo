@@ -17,7 +17,7 @@ for k, v in [
     if k not in st.session_state:
         st.session_state[k] = v
 
-METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units"]
+METRICS = ["Gross Sales Units", "Receipts Units", "BOP Units", "On Order Units", "Transfer Receipts"]
 
 # ---------- Data Generation ----------
 def generate_sample_data(locations):
@@ -53,6 +53,7 @@ def generate_sample_data(locations):
                         r["Receipts Units"] = 0
                         r["BOP Units"] = 0
                         r["On Order Units"] = 0
+                        r["Transfer Receipts"] = 0
 
                         if "Selling" in loc_types:
                             r["Gross Sales Units"] = np.random.randint(50, 500)
@@ -61,10 +62,17 @@ def generate_sample_data(locations):
                             r["Receipts Units"] = np.random.randint(30, 400)
                             r["BOP Units"] = np.random.randint(100, 1000)
                             r["On Order Units"] = np.random.randint(0, 300)
+                            # Transfer Receipts: negative for source locations
+                            r["Transfer Receipts"] = -np.random.randint(20, 300)
 
                         if "Inventory" in loc_types:
                             # Inventory contributes BOP; if Source also selected, BOP will be overwritten anyway by another rand
                             r["BOP Units"] = np.random.randint(100, 1000)
+                            # Transfer Receipts: positive for inventory locations (that are not source locations)
+                            if "Source" not in loc_types:
+                                r["Transfer Receipts"] = np.random.randint(20, 300)
+                        
+                        # Transfer Receipts: 0 for selling-only locations (already initialized to 0)
 
                         rows.append(r)
     return pd.DataFrame(rows)
@@ -248,7 +256,7 @@ def main():
                         default=loc.get("types", ["Selling"]),
                         key=f"loc_types_{i}",
                     )
-
+        
         st.divider()
         if st.button("🔄 Generate Data", type="primary", use_container_width=True):
             valid = [l for l in st.session_state.locations if l.get("name", "").strip()]
@@ -257,8 +265,8 @@ def main():
             else:
                 st.session_state.data = generate_sample_data(valid)
                 st.success(f"✓ Data generated for {len(valid)} location(s)")
-                st.rerun()
-
+            st.rerun()
+    
     with view_tab:
         if st.session_state.data is None:
             st.warning("Generate data first.")
