@@ -62,17 +62,19 @@ def generate_sample_data(locations):
                             r["Receipts Units"] = np.random.randint(30, 400)
                             r["BOP Units"] = np.random.randint(100, 1000)
                             r["On Order Units"] = np.random.randint(0, 300)
-                            # Transfer Receipts: negative for source locations
-                            r["Transfer Receipts"] = -np.random.randint(20, 300)
 
                         if "Inventory" in loc_types:
                             # Inventory contributes BOP; if Source also selected, BOP will be overwritten anyway by another rand
                             r["BOP Units"] = np.random.randint(100, 1000)
-                            # Transfer Receipts: positive for inventory locations (that are not source locations)
-                            if "Source" not in loc_types:
-                                r["Transfer Receipts"] = np.random.randint(20, 300)
                         
-                        # Transfer Receipts: 0 for selling-only locations (already initialized to 0)
+                        # Transfer Receipts logic based on new transfer options
+                        if "Transfer In Eligible" in loc_types:
+                            # Positive transfer receipts for transfer in eligible locations
+                            r["Transfer Receipts"] = np.random.randint(20, 300)
+                        elif "Transfer Out Eligible" in loc_types:
+                            # Negative transfer receipts for transfer out eligible locations
+                            r["Transfer Receipts"] = -np.random.randint(20, 300)
+                        # If neither option is selected, Transfer Receipts stays 0
 
                         rows.append(r)
     return pd.DataFrame(rows)
@@ -252,7 +254,7 @@ def main():
 
                     loc["types"] = st.multiselect(
                         "Location Type(s)",
-                        options=["Selling", "Source", "Inventory"],
+                        options=["Selling", "Source", "Inventory", "Transfer In Eligible", "Transfer Out Eligible"],
                         default=loc.get("types", ["Selling"]),
                         key=f"loc_types_{i}",
                     )
